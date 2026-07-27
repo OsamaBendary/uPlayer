@@ -20,7 +20,7 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   void _navigate() async{
-    await Future.delayed(Duration(seconds: 2));
+    await Future.delayed(Duration(seconds: 3));
     if (!mounted){return;}
     Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const PlayerScreen()));
 }

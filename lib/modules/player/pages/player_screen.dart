@@ -274,7 +274,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                     Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                                       decoration: BoxDecoration(
-                                        color: Colors.black.withValues(alpha: 0.4),
+                                        color: Colors.black.withValues(alpha: 0.15),
                                         borderRadius: BorderRadius.circular(14),
                                       ),
                                       child: SizedBox(
@@ -335,7 +335,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                     Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                                       decoration: BoxDecoration(
-                                        color: Colors.black.withValues(alpha: 0.4),
+                                        color: Colors.black.withValues(alpha: 0.15),
                                         borderRadius: BorderRadius.circular(14),
                                       ),
                                       child: Text(
@@ -353,7 +353,53 @@ class _PlayerScreenState extends State<PlayerScreen> {
                               ],
                             ),
                           ),
-                          const SizedBox(height: 0),
+                          Padding(
+                            padding:  EdgeInsets.symmetric(horizontal: horizontalPadding, vertical: 16),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.start,
+                              children: [
+                                Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                    child: IconButton(
+                                        onPressed: (){},
+                                        icon: Icon(Icons.timer_outlined), color: Colors.grey,),
+
+                                ),
+                                Spacer(),
+                                Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  child: IconButton(
+                                    onPressed: (){
+
+                                      _audioPlayer.playbackEvent.currentIndex;
+                                    },
+                                    icon: SvgPicture.asset("assets/icons/media-player-music-player-svgrepo-com.svg", color: Colors.grey,)),
+
+                                ),
+                                SizedBox(width: 8,),
+                                Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  child: IconButton(
+                                    iconSize: 30,
+                                    onPressed: (){
+                                      _audioPlayer.shuffle();
+                                    },
+                                      icon: SvgPicture.asset("assets/icons/music-player-random-svgrepo-com.svg", color: Colors.grey,)),
+
+                                ),
+                              ],
+                            ),
+                          ),
+
                           SizedBox(
                             height: 256,
                             child: Stack(
@@ -377,7 +423,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     IconButton(
-                                      iconSize: 60,
+                                      iconSize: 50,
                                       icon: CircleAvatar(
                                         backgroundColor: Colors.black,
                                         radius: 37,
@@ -385,13 +431,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                       ),
                                       onPressed: () => _audioPlayer.seekToPrevious(),
                                     ),
-                                    const SizedBox(width: 12),
+                                    const SizedBox(width: 6),
                                     StreamBuilder<PlayerState>(
                                       stream: _audioPlayer.playerStateStream,
                                       builder: (context, snapshot) {
                                         final isPlaying = snapshot.data?.playing ?? false;
                                         return IconButton(
-                                          iconSize: 64,
+                                          iconSize: 80,
                                           icon: CircleAvatar(
                                             backgroundColor: Colors.black,
                                             radius: 47,
@@ -410,9 +456,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                         );
                                       },
                                     ),
-                                    const SizedBox(width: 12),
+                                    const SizedBox(width: 6),
                                     IconButton(
-                                      iconSize: 60,
+                                      iconSize: 50,
                                       icon: CircleAvatar(
                                         backgroundColor: Colors.black,
                                         radius: 37,
