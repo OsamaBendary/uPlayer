@@ -8,6 +8,7 @@ import 'package:u_player/modules/library/widgets/album_card.dart';
 import 'package:u_player/modules/library/widgets/app_gradient_background.dart';
 import 'package:u_player/modules/library/widgets/artist_card.dart';
 import 'package:u_player/modules/library/widgets/label_chip.dart';
+import 'package:u_player/modules/settings/pages/folder_picker_screen.dart';
 
 enum LibrarySortMode { artist, album }
 
@@ -32,12 +33,51 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   Future<void> _loadSongs() async {
+    setState(() => _isLoading = true);
     final songs = await _audioRepository.fetchLocalSongs();
     if (!mounted) return;
     setState(() {
       _songs = songs;
       _isLoading = false;
     });
+  }
+
+  Future<void> _openFolderPicker() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const FolderPickerScreen()),
+    );
+    // The selected folders may have changed while that screen was open —
+    // reload so the library reflects it right away.
+    _loadSongs();
+  }
+
+  Future<void> _openFavorites() async {
+    final favorites = await _audioRepository.fetchFavoriteSongs();
+    if (!mounted) return;
+
+    if (favorites.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No favorites yet — tap the heart on a song to add one.'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Color(0xFF2A2A2A),
+        ),
+      );
+      return;
+    }
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => AlbumSongListScreen.fromSongs(
+          title: 'Favorites',
+          subtitle: '${favorites.length} song${favorites.length == 1 ? '' : 's'}',
+          songs: favorites,
+          artworkSongId: favorites.first.id,
+          heroArtTag: 'favorites-art',
+          heroTitleTag: 'favorites-title',
+        ),
+      ),
+    );
   }
 
   @override
@@ -55,14 +95,29 @@ class _LibraryScreenState extends State<LibraryScreen> {
               : Column(
             children: [
               const SizedBox(height: 12),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: LabelChip(
-                    'Library',
-                    style: TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold),
-                  ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  children: [
+                    const Expanded(
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: LabelChip(
+                          'Library',
+                          style: TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                    _HeaderIconButton(
+                      icon: Icons.favorite_rounded,
+                      onTap: _openFavorites,
+                    ),
+                    const SizedBox(width: 8),
+                    _HeaderIconButton(
+                      icon: Icons.folder_rounded,
+                      onTap: _openFolderPicker,
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(height: 16),
@@ -100,26 +155,61 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
 
     final albums = groupSongsByAlbum(_songs);
-    return GridView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        mainAxisSpacing: 16,
-        crossAxisSpacing: 16,
-        childAspectRatio: 0.72,
-      ),
-      itemCount: albums.length,
-      itemBuilder: (context, index) {
-        final album = albums[index];
-        return AlbumCard(
-          album: album,
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => AlbumSongListScreen(album: album)),
+    const crossAxisCount = 2;
+    const spacing = 16.0;
+    const horizontalPadding = 16.0;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final itemWidth =
+            (constraints.maxWidth - horizontalPadding * 2 - spacing * (crossAxisCount - 1)) / crossAxisCount;
+        final itemHeight = AlbumCard.estimatedHeightForWidth(itemWidth);
+
+        return GridView.builder(
+          padding: const EdgeInsets.symmetric(horizontal: horizontalPadding, vertical: 8),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: crossAxisCount,
+            mainAxisSpacing: spacing,
+            crossAxisSpacing: spacing,
+            mainAxisExtent: itemHeight,
+          ),
+          itemCount: albums.length,
+          itemBuilder: (context, index) {
+            final album = albums[index];
+            return AlbumCard(
+              album: album,
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => AlbumSongListScreen(album: album)),
+                );
+              },
             );
           },
         );
       },
+    );
+  }
+}
+
+class _HeaderIconButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _HeaderIconButton({required this.icon, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.black.withValues(alpha: 0.2),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: Icon(icon, color: Colors.white70, size: 20),
+        ),
+      ),
     );
   }
 }

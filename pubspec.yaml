@@ -38,6 +38,7 @@ dependencies:
   marquee: ^2.3.0
   shared_preferences: ^2.5.5
   flutter_svg: ^2.3.0
+  http: ^1.2.2 # added for the Lrclib lyrics client
 
 dev_dependencies:
   flutter_test:

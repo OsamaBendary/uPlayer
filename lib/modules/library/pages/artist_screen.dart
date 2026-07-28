@@ -11,6 +11,15 @@ class ArtistScreen extends StatelessWidget {
 
   const ArtistScreen({super.key, required this.artist});
 
+  // Swiping either direction pops back to the library screen this was
+  // pushed from — not down to the player.
+  void _handleHorizontalSwipe(BuildContext context, DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0;
+    if (velocity.abs() > 250) {
+      Navigator.of(context).maybePop();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final albums = artist.albums;
@@ -21,82 +30,96 @@ class ArtistScreen extends StatelessWidget {
       backgroundColor: Colors.black,
       // Switches from the library's static gradient to the same
       // per-song-palette gradient the player screen uses.
-      body: DynamicGradientBackground(
-        songId: artist.representativeSong.id,
-        child: SafeArea(
-          bottom: false,
-          child: Column(
-            children: [
-              LibraryDetailHeader(
-                artworkSongId: artist.representativeSong.id,
-                title: artist.name,
-                subtitle: '${artist.songCount} song${artist.songCount == 1 ? '' : 's'} • '
-                    '${formatDuration(artist.totalDuration)}',
-                heroArtTag: artHeroTag,
-                heroTitleTag: nameHeroTag,
-              ),
-              Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-                  children: [
-                    _AllSongsBar(
-                      label: 'All songs by ${artist.name}',
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => AlbumSongListScreen.fromSongs(
-                              title: artist.name,
-                              subtitle: 'All Songs',
-                              songs: artist.songs,
-                              artworkSongId: artist.representativeSong.id,
-                              // Different tag from the header above (same
-                              // route can't reuse a tag that's already on
-                              // screen) but still ties back to this artist.
-                              heroArtTag: '$artHeroTag-all-songs',
-                              heroTitleTag: '$nameHeroTag-all-songs',
+      body: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onHorizontalDragEnd: (details) => _handleHorizontalSwipe(context, details),
+        child: DynamicGradientBackground(
+          songId: artist.representativeSong.id,
+          child: SafeArea(
+            bottom: false,
+            child: Column(
+              children: [
+                LibraryDetailHeader(
+                  artworkSongId: artist.representativeSong.id,
+                  title: artist.name,
+                  subtitle: '${artist.songCount} song${artist.songCount == 1 ? '' : 's'} • '
+                      '${formatDuration(artist.totalDuration)}',
+                  heroArtTag: artHeroTag,
+                  heroTitleTag: nameHeroTag,
+                ),
+                Expanded(
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                    children: [
+                      _AllSongsBar(
+                        label: 'All songs by ${artist.name}',
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => AlbumSongListScreen.fromSongs(
+                                title: artist.name,
+                                subtitle: 'All Songs',
+                                songs: artist.songs,
+                                artworkSongId: artist.representativeSong.id,
+                                // Different tag from the header above (same
+                                // route can't reuse a tag that's already on
+                                // screen) but still ties back to this artist.
+                                heroArtTag: '$artHeroTag-all-songs',
+                                heroTitleTag: '$nameHeroTag-all-songs',
+                              ),
                             ),
-                          ),
-                        );
-                      },
-                    ),
-                    if (albums.isNotEmpty) ...[
-                      const SizedBox(height: 24),
-                      const Padding(
-                        padding: EdgeInsets.only(bottom: 12),
-                        child: LabelChip(
-                          'Albums',
-                          style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                      GridView.builder(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 2,
-                          mainAxisSpacing: 16,
-                          crossAxisSpacing: 16,
-                          childAspectRatio: 0.72,
-                        ),
-                        itemCount: albums.length,
-                        itemBuilder: (context, index) {
-                          final album = albums[index];
-                          return AlbumCard(
-                            album: album,
-                            onTap: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => AlbumSongListScreen(album: album),
-                                ),
-                              );
-                            },
                           );
                         },
                       ),
+                      if (albums.isNotEmpty) ...[
+                        const SizedBox(height: 24),
+                        const Padding(
+                          padding: EdgeInsets.only(bottom: 12),
+                          child: LabelChip(
+                            'Albums',
+                            style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                        LayoutBuilder(
+                          builder: (context, constraints) {
+                            const crossAxisCount = 2;
+                            const spacing = 16.0;
+                            final itemWidth =
+                                (constraints.maxWidth - spacing * (crossAxisCount - 1)) / crossAxisCount;
+                            final itemHeight = AlbumCard.estimatedHeightForWidth(itemWidth);
+
+                            return GridView.builder(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: crossAxisCount,
+                                mainAxisSpacing: spacing,
+                                crossAxisSpacing: spacing,
+                                mainAxisExtent: itemHeight,
+                              ),
+                              itemCount: albums.length,
+                              itemBuilder: (context, index) {
+                                final album = albums[index];
+                                return AlbumCard(
+                                  album: album,
+                                  onTap: () {
+                                    Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) => AlbumSongListScreen(album: album),
+                                      ),
+                                    );
+                                  },
+                                );
+                              },
+                            );
+                          },
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

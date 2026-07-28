@@ -32,6 +32,9 @@ class ArtistCard extends StatelessWidget {
                     artworkWidth: 56,
                     artworkHeight: 56,
                     artworkFit: BoxFit.cover,
+                    quality: 100,
+                    format: ArtworkFormat.PNG,
+                    size: 300,
                     nullArtworkWidget: Container(
                       width: 56,
                       height: 56,

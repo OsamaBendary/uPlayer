@@ -9,6 +9,32 @@ class AlbumCard extends StatelessWidget {
 
   const AlbumCard({super.key, required this.album, required this.onTap});
 
+  /// The overflow bug came from grids using a fixed childAspectRatio: at
+  /// narrow item widths, the reserved height below the square artwork
+  /// (title + artist + duration + spacing) didn't scale with it, so on
+  /// smaller screens the text block ran out of room. This gives both grids
+  /// (library_screen's album grid and artist_screen's album grid) an exact
+  /// height for a given item width instead of guessing via aspect ratio, so
+  /// there's always exactly enough room and never wasted space either.
+  static double estimatedHeightForWidth(double itemWidth) {
+    const artworkSpacing = 8.0;
+    const titleHeight = 20.0;
+    const titleGap = 4.0;
+    const artistHeight = 16.0;
+    const artistGap = 4.0;
+    const durationHeight = 14.0;
+    const buffer = 6.0; // small safety margin against font metric rounding
+
+    return itemWidth +
+        artworkSpacing +
+        titleHeight +
+        titleGap +
+        artistHeight +
+        artistGap +
+        durationHeight +
+        buffer;
+  }
+
   @override
   Widget build(BuildContext context) {
     final heroTag = 'album-art-${album.name}-${album.artist}';
@@ -32,6 +58,9 @@ class AlbumCard extends StatelessWidget {
                     type: ArtworkType.AUDIO,
                     artworkFit: BoxFit.cover,
                     artworkBorder: BorderRadius.zero,
+                    quality: 100,
+                    format: ArtworkFormat.PNG,
+                    size: 600,
                     nullArtworkWidget: Container(
                       color: const Color(0xFF1A1A1A),
                       child: const Icon(Icons.album_rounded, color: Colors.white38, size: 48),
