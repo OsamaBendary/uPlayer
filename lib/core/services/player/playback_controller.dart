@@ -24,7 +24,23 @@ class PlaybackController extends ChangeNotifier {
   final PlayCountService _playCountService = PlayCountService();
   final AudioPlayer audioPlayer = AudioPlayer();
 
+  /// Every song on the device (respecting the folder filter). This is the
+  /// "library" — it does NOT change when you play an album/artist, it's
+  /// only used as the source for "shuffle/repeat all songs on device".
   List<SongModel> songs = [];
+
+  /// The list actually loaded into the audio player right now, in the
+  /// order it plays in. When you open an album this becomes just that
+  /// album's songs; when you tap a track from the general library it's
+  /// the same as `songs`.
+  List<SongModel> queue = [];
+
+  /// True when `queue` is exactly the full library (the normal/default
+  /// state). False once `playQueue` has scoped playback down to an
+  /// album/artist/playlist. Used to decide what "repeat/shuffle this
+  /// list" vs "...all songs" actually do.
+  bool queueIsWholeLibrary = true;
+
   bool isLoading = true;
   int currentIndex = 0;
 
@@ -49,7 +65,10 @@ class PlaybackController extends ChangeNotifier {
   /// screen is already open, instead of stacking on top of it.
   final ValueNotifier<bool> isPlayerScreenVisible = ValueNotifier<bool>(false);
 
-  SongModel? get currentSong => songs.isEmpty ? null : songs[currentIndex];
+  /// Tracks whether the user manually swiped down/dismissed the mini player.
+  final ValueNotifier<bool> isMiniPlayerDismissed = ValueNotifier<bool>(false);
+
+  SongModel? get currentSong => queue.isEmpty ? null : queue[currentIndex];
   bool get hasSleepTimer => _sleepTimer != null;
 
   /// Cheap to call from every screen that touches playback — the real
@@ -63,10 +82,12 @@ class PlaybackController extends ChangeNotifier {
   Future<void> _init() async {
     final loaded = await _audioRepository.fetchLocalSongs();
     songs = loaded;
+    queue = List.from(loaded);
+    queueIsWholeLibrary = true;
 
     if (loaded.isNotEmpty) {
-      await audioPlayer.setAudioSource(_createPlaylist(loaded));
-      _loadWaveformFor(loaded[currentIndex]);
+      await audioPlayer.setAudioSource(_createPlaylist(queue));
+      _loadWaveformFor(queue[currentIndex]);
     }
 
     isLoading = false;
@@ -75,14 +96,47 @@ class PlaybackController extends ChangeNotifier {
     if (!_listenersAttached) {
       _listenersAttached = true;
       audioPlayer.currentIndexStream.listen((index) {
-        if (index != null && index != currentIndex && index < songs.length) {
+        if (index != null && index != currentIndex && index < queue.length) {
           currentIndex = index;
-          _loadWaveformFor(songs[index]);
-          _registerPlay(songs[index].id);
+          _loadWaveformFor(queue[index]);
+          _registerPlay(queue[index].id);
           notifyListeners();
         }
       });
     }
+  }
+
+  /// Re-scans the device and updates `songs` — for when something outside
+  /// playback changed what should be in the library, e.g. the user just
+  /// changed their folder filter. If the queue is currently the whole
+  /// library (the normal case), it's rebuilt too, preserving whatever's
+  /// playing and its position instead of restarting it. If the queue is
+  /// scoped to an album/artist, it's left alone — only `songs` (and the
+  /// library screen that reads it) updates.
+  Future<void> refreshLibrary() async {
+    final loaded = await _audioRepository.fetchLocalSongs();
+    songs = loaded;
+
+    if (queueIsWholeLibrary) {
+      final playing = currentSong;
+      final position = audioPlayer.position;
+
+      queue = List.from(loaded);
+
+      if (loaded.isEmpty) {
+        currentIndex = 0;
+      } else {
+        final newIndex = playing != null ? queue.indexWhere((s) => s.id == playing.id) : 0;
+        currentIndex = newIndex == -1 ? 0 : newIndex;
+        await audioPlayer.setAudioSource(
+          _createPlaylist(queue),
+          initialIndex: currentIndex,
+          initialPosition: position,
+        );
+      }
+    }
+
+    notifyListeners();
   }
 
   ConcatenatingAudioSource _createPlaylist(List<SongModel> list) {
@@ -102,19 +156,53 @@ class PlaybackController extends ChangeNotifier {
     );
   }
 
-  /// Jumps playback straight to `song` — this is what the library, album,
-  /// and artist screens call when the user taps a track.
+  /// Jumps playback straight to `song` from the FULL library (this is what
+  /// the general library list calls when the user taps a track outside of
+  /// any album/artist context). Equivalent to playQueue(songs, ...).
   Future<void> playSong(SongModel song) async {
     await ensureInitialized();
     final idx = songs.indexWhere((s) => s.id == song.id);
     if (idx == -1) return;
+    await playQueue(songs, startIndex: idx);
+  }
 
-    currentIndex = idx;
-    notifyListeners();
+  /// Plays exactly `list`, in that order, starting at `startIndex`. This is
+  /// what album/artist screens call so playback stays scoped to what the
+  /// user opened instead of jumping around the whole device library.
+  Future<void> playQueue(List<SongModel> list, {required int startIndex}) async {
+    await ensureInitialized();
+    if (list.isEmpty) return;
+    final clampedStart = startIndex.clamp(0, list.length - 1);
 
-    await audioPlayer.seek(Duration.zero, index: idx);
+    // Keep shuffle mode's underlying order sane for the new queue instead
+    // of leaving just_audio's shuffle order pointing at the old list.
+    final wasShuffled = isShuffleEnabled;
+    if (wasShuffled) {
+      await audioPlayer.setShuffleModeEnabled(false);
+    }
+
+    queue = List.from(list);
+    queueIsWholeLibrary = _isSameSongs(queue, songs);
+    currentIndex = clampedStart;
+
+    await audioPlayer.setAudioSource(_createPlaylist(queue), initialIndex: clampedStart);
+
+    if (wasShuffled) {
+      await audioPlayer.shuffle();
+      await audioPlayer.setShuffleModeEnabled(true);
+    }
+
     await audioPlayer.play();
-    _registerPlay(song.id);
+    notifyListeners();
+    _registerPlay(queue[clampedStart].id);
+  }
+
+  bool _isSameSongs(List<SongModel> a, List<SongModel> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i].id != b[i].id) return false;
+    }
+    return true;
   }
 
   // --- Play counts ---
@@ -136,29 +224,86 @@ class PlaybackController extends ChangeNotifier {
 
   // --- Shuffle ---
 
-  Future<void> toggleShuffle() async {
-    final next = !isShuffleEnabled;
-    // just_audio's shuffle() only (re)computes the shuffle order — it has
-    // to be called before enabling shuffle mode for the new order to apply.
-    if (next) {
-      await audioPlayer.shuffle();
-    }
-    await audioPlayer.setShuffleModeEnabled(next);
-    isShuffleEnabled = next;
+  /// Turns shuffle off. Safe to call even if it's already off.
+  Future<void> turnOffShuffle() async {
+    await audioPlayer.setShuffleModeEnabled(false);
+    isShuffleEnabled = false;
+    notifyListeners();
+  }
+
+  /// Shuffles just the currently active queue (e.g. the album or artist
+  /// you have open) — order within that list is randomized, but it won't
+  /// pull in songs from outside it.
+  Future<void> shuffleThisList() async {
+    await audioPlayer.shuffle();
+    await audioPlayer.setShuffleModeEnabled(true);
+    isShuffleEnabled = true;
+    notifyListeners();
+  }
+
+  /// Rebuilds the queue to the whole device library (if it isn't already)
+  /// and shuffles across everything, preserving whatever's currently
+  /// playing and its position instead of restarting the track.
+  Future<void> shuffleAllSongs() async {
+    await _rebuildQueueToWholeLibraryPreservingPlayback();
+    await audioPlayer.shuffle();
+    await audioPlayer.setShuffleModeEnabled(true);
+    isShuffleEnabled = true;
     notifyListeners();
   }
 
   // --- Repeat ---
 
-  Future<void> cycleRepeatMode() async {
-    final next = switch (loopMode) {
-      LoopMode.off => LoopMode.all,
-      LoopMode.all => LoopMode.one,
-      LoopMode.one => LoopMode.off,
-    };
-    await audioPlayer.setLoopMode(next);
-    loopMode = next;
+  Future<void> repeatOff() async {
+    await audioPlayer.setLoopMode(LoopMode.off);
+    loopMode = LoopMode.off;
     notifyListeners();
+  }
+
+  Future<void> repeatOneSong() async {
+    await audioPlayer.setLoopMode(LoopMode.one);
+    loopMode = LoopMode.one;
+    notifyListeners();
+  }
+
+  /// Loops whatever the current queue is — an album, an artist's songs,
+  /// or the whole library, whichever is active right now.
+  Future<void> repeatThisList() async {
+    await audioPlayer.setLoopMode(LoopMode.all);
+    loopMode = LoopMode.all;
+    notifyListeners();
+  }
+
+  /// Rebuilds the queue to the whole device library (if scoped to an
+  /// album/artist right now) and loops that.
+  Future<void> repeatAllSongs() async {
+    await _rebuildQueueToWholeLibraryPreservingPlayback();
+    await audioPlayer.setLoopMode(LoopMode.all);
+    loopMode = LoopMode.all;
+    notifyListeners();
+  }
+
+  /// Shared helper for the "...all songs on device" shuffle/repeat
+  /// options: swaps the queue back to the full library without
+  /// interrupting whatever's currently playing.
+  Future<void> _rebuildQueueToWholeLibraryPreservingPlayback() async {
+    if (queueIsWholeLibrary) return;
+
+    final playing = currentSong;
+    final position = audioPlayer.position;
+
+    queue = List.from(songs);
+    queueIsWholeLibrary = true;
+
+    final newIndex = playing != null ? queue.indexWhere((s) => s.id == playing.id) : 0;
+    currentIndex = newIndex == -1 ? 0 : newIndex;
+
+    await audioPlayer.setAudioSource(
+      _createPlaylist(queue),
+      initialIndex: currentIndex,
+      initialPosition: position,
+    );
+    await audioPlayer.play();
   }
 
   // --- Sleep timer ---
@@ -248,6 +393,7 @@ class PlaybackController extends ChangeNotifier {
     _sleepTimer?.cancel();
     audioPlayer.dispose();
     isPlayerScreenVisible.dispose();
+    isMiniPlayerDismissed.dispose();
     super.dispose();
   }
 }

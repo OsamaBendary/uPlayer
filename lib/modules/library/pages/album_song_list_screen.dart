@@ -67,10 +67,25 @@ class AlbumSongListScreen extends StatelessWidget {
   }
 
   Future<void> _playSong(BuildContext context, SongModel song) async {
-    await PlaybackController.instance.playSong(song);
+    // Queue exactly this screen's list (the album, or the artist's "all
+    // songs") in order, starting at the tapped track — instead of jumping
+    // into the full device library, which is what made playback feel like
+    // it was skipping to random albums before.
+    final startIndex = songs.indexWhere((s) => s.id == song.id);
+    await PlaybackController.instance.playQueue(songs, startIndex: startIndex == -1 ? 0 : startIndex);
     if (!context.mounted) return;
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const PlayerScreen()),
+      MaterialPageRoute(
+        // These are the same tags LibraryDetailHeader is using below, on
+        // this exact screen. Handing them to PlayerScreen is what lets the
+        // artwork/title fly from this header into the player on the way
+        // in, and back into it here when you swipe the player down —
+        // previously nothing was passed, so that transition never fired.
+        builder: (_) => PlayerScreen(
+          heroArtTag: heroArtTag,
+          heroTitleTag: heroTitleTag,
+        ),
+      ),
     );
   }
 
@@ -122,92 +137,138 @@ class _SongTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final duration = Duration(milliseconds: song.duration ?? 0);
+    final controller = PlaybackController.instance;
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
-          child: Row(
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: QueryArtworkWidget(
-                  id: song.id,
-                  type: ArtworkType.AUDIO,
-                  artworkWidth: 56,
-                  artworkHeight: 56,
-                  artworkFit: BoxFit.cover,
-                  artworkBorder: BorderRadius.circular(12),
-                  quality: 100,
-                  format: ArtworkFormat.PNG,
-                  size: 300,
-                  nullArtworkWidget: Container(
-                    width: 56,
-                    height: 56,
-                    color: const Color(0xFF1A1A1A),
-                    child: const Icon(Icons.music_note_rounded, color: Colors.white38),
-                  ),
-                ),
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        final isPlaying = controller.currentSong?.id == song.id;
+        final duration = Duration(milliseconds: song.duration ?? 0);
+
+        return Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: onTap,
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+              decoration: BoxDecoration(
+                color: isPlaying ? Colors.white.withAlpha(25) : Colors.transparent,
+                borderRadius: BorderRadius.circular(14),
+                border: isPlaying
+                    ? Border.all(color: Colors.white.withAlpha(38), width: 1)
+                    : null,
               ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      song.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      song.artist ?? 'Unknown Artist',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white54, fontSize: 12),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                mainAxisSize: MainAxisSize.min,
+              child: Row(
                 children: [
-                  Text(
-                    formatDuration(duration),
-                    style: const TextStyle(color: Colors.white54, fontSize: 12),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: QueryArtworkWidget(
+                      id: song.id,
+                      type: ArtworkType.AUDIO,
+                      artworkWidth: 56,
+                      artworkHeight: 56,
+                      artworkFit: BoxFit.cover,
+                      artworkBorder: BorderRadius.circular(12),
+                      quality: 100,
+                      format: ArtworkFormat.PNG,
+                      size: 300,
+                      nullArtworkWidget: Container(
+                        width: 56,
+                        height: 56,
+                        color: const Color(0xFF1A1A1A),
+                        child: const Icon(Icons.music_note_rounded, color: Colors.white38),
+                      ),
+                    ),
                   ),
-                  const SizedBox(height: 4),
-                  FutureBuilder<int>(
-                    future: PlaybackController.instance.getPlayCount(song.id),
-                    builder: (context, snapshot) {
-                      final count = snapshot.data ?? 0;
-                      return Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.play_arrow_rounded, size: 12, color: Colors.white38),
-                          const SizedBox(width: 2),
-                          Text(
-                            '$count',
-                            style: const TextStyle(color: Colors.white38, fontSize: 11),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          children: [
+                            if (isPlaying) ...[
+                              const Icon(
+                                Icons.graphic_eq_rounded,
+                                size: 16,
+                                color: Colors.white,
+                              ),
+                              const SizedBox(width: 6),
+                            ],
+                            Expanded(
+                              child: Text(
+                                song.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 15,
+                                  fontWeight: isPlaying ? FontWeight.bold : FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          song.artist ?? 'Unknown Artist',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: isPlaying ? Colors.white70 : Colors.white54,
+                            fontSize: 12,
                           ),
-                        ],
-                      );
-                    },
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        formatDuration(duration),
+                        style: TextStyle(
+                          color: isPlaying ? Colors.white70 : Colors.white54,
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      FutureBuilder<int>(
+                        future: controller.getPlayCount(song.id),
+                        builder: (context, snapshot) {
+                          final count = snapshot.data ?? 0;
+                          return Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.play_arrow_rounded,
+                                size: 12,
+                                color: isPlaying ? Colors.white70 : Colors.white38,
+                              ),
+                              const SizedBox(width: 2),
+                              Text(
+                                '$count',
+                                style: TextStyle(
+                                  color: isPlaying ? Colors.white70 : Colors.white38,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                    ],
                   ),
                 ],
               ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }

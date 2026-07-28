@@ -6,8 +6,14 @@ import 'package:u_player/modules/library/widgets/label_chip.dart';
 class ArtistCard extends StatelessWidget {
   final ArtistGroup artist;
   final VoidCallback onTap;
+  final bool isPlaying;
 
-  const ArtistCard({super.key, required this.artist, required this.onTap});
+  const ArtistCard({
+    super.key,
+    required this.artist,
+    required this.onTap,
+    this.isPlaying = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -17,10 +23,17 @@ class ArtistCard extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(14),
         onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+          decoration: BoxDecoration(
+            color: isPlaying ? Colors.white.withAlpha(25) : Colors.transparent,
+            borderRadius: BorderRadius.circular(14),
+            border: isPlaying
+                ? Border.all(color: Colors.white.withAlpha(38), width: 1)
+                : null,
+          ),
           child: Row(
             children: [
               Hero(
@@ -54,13 +67,27 @@ class ArtistCard extends StatelessWidget {
                       tag: nameHeroTag,
                       child: Material(
                         color: Colors.transparent,
-                        child: LabelChip(
-                          artist.name,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
+                        child: Row(
+                          children: [
+                            if (isPlaying) ...[
+                              const Icon(
+                                Icons.graphic_eq_rounded,
+                                size: 16,
+                                color: Colors.white,
+                              ),
+                              const SizedBox(width: 6),
+                            ],
+                            Expanded(
+                              child: LabelChip(
+                                artist.name,
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: isPlaying ? FontWeight.bold : FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
@@ -68,7 +95,10 @@ class ArtistCard extends StatelessWidget {
                     LabelChip(
                       '${artist.songCount} song${artist.songCount == 1 ? '' : 's'} • '
                           '${formatDuration(artist.totalDuration)}',
-                      style: const TextStyle(color: Colors.white70, fontSize: 12),
+                      style: TextStyle(
+                        color: isPlaying ? Colors.white70 : Colors.white54,
+                        fontSize: 12,
+                      ),
                     ),
                   ],
                 ),

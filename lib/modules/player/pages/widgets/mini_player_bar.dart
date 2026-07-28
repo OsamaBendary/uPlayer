@@ -2,13 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 import 'package:u_player/core/services/player/playback_controller.dart';
+import 'package:u_player/core/services/player/seekbar_preference.dart';
+import 'package:u_player/main.dart';
 import 'package:u_player/modules/player/pages/player_screen.dart';
 
-/// A floating "now playing" card, pinned near the bottom of the screen over
-/// whatever content is underneath — not a bottom navigation bar. Wired in
-/// via MaterialApp's `builder` in main.dart so it appears above every
-/// screen, and hides itself automatically while the full PlayerScreen is
-/// already open (via PlaybackController.instance.isPlayerScreenVisible).
 class MiniPlayerBar extends StatelessWidget {
   const MiniPlayerBar({super.key});
 
@@ -19,33 +16,49 @@ class MiniPlayerBar extends StatelessWidget {
     return ValueListenableBuilder<bool>(
       valueListenable: controller.isPlayerScreenVisible,
       builder: (context, onPlayerScreen, _) {
-        return AnimatedBuilder(
-          animation: controller,
-          builder: (context, _) {
-            final song = controller.currentSong;
-            final visible = !onPlayerScreen && song != null && !controller.isLoading;
+        return ValueListenableBuilder<bool>(
+          valueListenable: controller.isMiniPlayerDismissed,
+          builder: (context, isDismissed, _) {
+            return AnimatedBuilder(
+              animation: controller,
+              builder: (context, _) {
+                final song = controller.currentSong;
+                final visible = !onPlayerScreen && !isDismissed && song != null && !controller.isLoading;
 
-            return IgnorePointer(
-              ignoring: !visible,
-              child: Align(
-                alignment: Alignment.bottomCenter,
-                child: AnimatedSlide(
-                  offset: visible ? Offset.zero : const Offset(0, 1),
-                  duration: const Duration(milliseconds: 220),
-                  curve: Curves.easeOut,
-                  child: AnimatedOpacity(
-                    opacity: visible ? 1 : 0,
-                    duration: const Duration(milliseconds: 220),
-                    child: SafeArea(
-                      minimum: const EdgeInsets.only(bottom: 12),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: song == null ? const SizedBox.shrink() : _MiniPlayerCard(song: song, controller: controller),
+                return IgnorePointer(
+                  ignoring: !visible,
+                  child: Align(
+                    alignment: Alignment.bottomCenter,
+                    child: AnimatedSlide(
+                      offset: visible ? Offset.zero : const Offset(0, 1.5),
+                      duration: const Duration(milliseconds: 350),
+                      curve: Curves.fastOutSlowIn,
+                      child: AnimatedOpacity(
+                        opacity: visible ? 1.0 : 0.0,
+                        duration: const Duration(milliseconds: 280),
+                        curve: Curves.easeOut,
+                        child: SafeArea(
+                          minimum: const EdgeInsets.only(bottom: 12),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: song == null
+                                ? const SizedBox.shrink()
+                                : GestureDetector(
+                              behavior: HitTestBehavior.translucent,
+                              onVerticalDragEnd: (details) {
+                                if ((details.primaryVelocity ?? 0) > 200) {
+                                  controller.isMiniPlayerDismissed.value = true;
+                                }
+                              },
+                              child: _MiniPlayerCard(song: song, controller: controller),
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ),
+                );
+              },
             );
           },
         );
@@ -60,17 +73,94 @@ class _MiniPlayerCard extends StatelessWidget {
 
   const _MiniPlayerCard({required this.song, required this.controller});
 
+  void _openPlayerScreen() {
+    rootNavigatorKey.currentState?.push(
+      PageRouteBuilder(
+        settings: const RouteSettings(name: PlayerScreen.routeName),
+        transitionDuration: const Duration(milliseconds: 400),
+        reverseTransitionDuration: const Duration(milliseconds: 350),
+        pageBuilder: (context, animation, secondaryAnimation) {
+          return const PlayerScreen();
+        },
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          final curvedAnimation = CurvedAnimation(
+            parent: animation,
+            curve: Curves.fastOutSlowIn,
+            reverseCurve: Curves.easeInCubic,
+          );
+
+          // Smooth slide up from bottom paired with a subtle scale + fade
+          return SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0.0, 0.08),
+              end: Offset.zero,
+            ).animate(curvedAnimation),
+            child: FadeTransition(
+              opacity: CurvedAnimation(
+                parent: animation,
+                curve: const Interval(0.0, 0.75, curve: Curves.easeOut),
+              ),
+              child: child,
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _showSeekbarMenu() {
+    final navigatorContext = rootNavigatorKey.currentContext;
+    if (navigatorContext == null) return;
+
+    showModalBottomSheet<void>(
+      context: navigatorContext,
+      backgroundColor: const Color(0xFF1A1A1A),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 110),
+          child: SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(height: 8),
+                ValueListenableBuilder<bool>(
+                  valueListenable: useWaveformSeekbar,
+                  builder: (context, isWaveform, _) {
+                    return ListTile(
+                      leading: Icon(
+                        isWaveform ? Icons.show_chart_rounded : Icons.linear_scale_rounded,
+                        color: Colors.white70,
+                      ),
+                      title: Text(
+                        isWaveform ? 'Use normal seek bar' : 'Use waveform seek bar',
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                      onTap: () {
+                        useWaveformSeekbar.value = !useWaveformSeekbar.value;
+                        Navigator.pop(sheetContext);
+                      },
+                    );
+                  },
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Material(
       color: Colors.transparent,
       child: InkWell(
         borderRadius: BorderRadius.circular(20),
-        onTap: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const PlayerScreen()),
-          );
-        },
+        onTap: _openPlayerScreen,
         child: Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
@@ -146,11 +236,7 @@ class _MiniPlayerCard extends StatelessWidget {
               ),
               IconButton(
                 icon: const Icon(Icons.menu_rounded, color: Colors.white70),
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const PlayerScreen()),
-                  );
-                },
+                onPressed: _showSeekbarMenu,
               ),
             ],
           ),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:u_player/core/models/library_group.dart';
+import 'package:u_player/core/services/player/playback_controller.dart';
 import 'package:u_player/core/theme/dynamic_gradient_background/dynamic_gradient_background.dart';
 import 'package:u_player/modules/library/pages/album_song_list_screen.dart';
 import 'package:u_player/modules/library/widgets/album_card.dart';
@@ -11,8 +12,6 @@ class ArtistScreen extends StatelessWidget {
 
   const ArtistScreen({super.key, required this.artist});
 
-  // Swiping either direction pops back to the library screen this was
-  // pushed from — not down to the player.
   void _handleHorizontalSwipe(BuildContext context, DragEndDetails details) {
     final velocity = details.primaryVelocity ?? 0;
     if (velocity.abs() > 250) {
@@ -28,8 +27,6 @@ class ArtistScreen extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: Colors.black,
-      // Switches from the library's static gradient to the same
-      // per-song-palette gradient the player screen uses.
       body: GestureDetector(
         behavior: HitTestBehavior.translucent,
         onHorizontalDragEnd: (details) => _handleHorizontalSwipe(context, details),
@@ -61,9 +58,6 @@ class ArtistScreen extends StatelessWidget {
                                 subtitle: 'All Songs',
                                 songs: artist.songs,
                                 artworkSongId: artist.representativeSong.id,
-                                // Different tag from the header above (same
-                                // route can't reuse a tag that's already on
-                                // screen) but still ties back to this artist.
                                 heroArtTag: '$artHeroTag-all-songs',
                                 heroTitleTag: '$nameHeroTag-all-songs',
                               ),
@@ -100,13 +94,24 @@ class ArtistScreen extends StatelessWidget {
                               itemCount: albums.length,
                               itemBuilder: (context, index) {
                                 final album = albums[index];
-                                return AlbumCard(
-                                  album: album,
-                                  onTap: () {
-                                    Navigator.of(context).push(
-                                      MaterialPageRoute(
-                                        builder: (_) => AlbumSongListScreen(album: album),
-                                      ),
+
+                                return AnimatedBuilder(
+                                  animation: PlaybackController.instance,
+                                  builder: (context, _) {
+                                    final currentPlayingSong = PlaybackController.instance.currentSong;
+                                    final isPlaying = currentPlayingSong != null &&
+                                        album.songs.any((s) => s.id == currentPlayingSong.id);
+
+                                    return AlbumCard(
+                                      album: album,
+                                      isPlaying: isPlaying,
+                                      onTap: () {
+                                        Navigator.of(context).push(
+                                          MaterialPageRoute(
+                                            builder: (_) => AlbumSongListScreen(album: album),
+                                          ),
+                                        );
+                                      },
                                     );
                                   },
                                 );

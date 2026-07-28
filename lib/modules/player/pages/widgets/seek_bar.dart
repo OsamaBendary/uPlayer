@@ -6,8 +6,8 @@ class WaveformSeekbar extends StatefulWidget {
   final Duration position;
   final Duration duration;
   final Function(Duration) onSeek;
-  final List<double>? customAmplitudes; // Real extracted waveform, when available
-  final bool isLoading; // True while the real waveform is still being decoded
+  final List<double>? customAmplitudes;
+  final bool isLoading;
 
   const WaveformSeekbar({
     super.key,
@@ -24,7 +24,7 @@ class WaveformSeekbar extends StatefulWidget {
 
 class _WaveformSeekbarState extends State<WaveformSeekbar> {
   static const double _barWidth = 8.0;
-  static const double _barGap = 2;
+  static const double _barGap = 2.0;
   static const double _spacing = _barWidth + _barGap;
 
   late List<double> _amplitudes;
@@ -54,9 +54,6 @@ class _WaveformSeekbarState extends State<WaveformSeekbar> {
       _barCount = _amplitudes.length;
       return;
     }
-    // Placeholder only — shown while the real waveform is being decoded,
-    // or if extraction failed. Density scales with duration so it never
-    // runs out of bars for long tracks (this was the original bug).
     _barCount = (widget.duration.inMilliseconds / 250).round().clamp(40, 2000);
     _amplitudes = _generatePlaceholderWaveform(_barCount);
   }
@@ -100,12 +97,11 @@ class _WaveformSeekbarState extends State<WaveformSeekbar> {
         final double translateX = viewportWidth / 2 - contentWidth * progress;
 
         void seekToLocalX(double localX) {
+          if (contentWidth == 0) return;
           final double contentX = localX - translateX;
           final double newProgress = (contentX / contentWidth).clamp(0.0, 1.0);
           widget.onSeek(
-            Duration(
-                milliseconds: (widget.duration.inMilliseconds * newProgress)
-                    .round()),
+            Duration(milliseconds: (widget.duration.inMilliseconds * newProgress).round()),
           );
         }
 
@@ -119,103 +115,69 @@ class _WaveformSeekbarState extends State<WaveformSeekbar> {
             });
           },
           onHorizontalDragUpdate: (details) {
+            if (contentWidth == 0) return;
+            final double deltaProgress = details.delta.dx / contentWidth;
             setState(() {
-              _scrubProgress =
-                  (_scrubProgress - details.delta.dx / contentWidth).clamp(
-                      0.0, 1.0);
+              _scrubProgress = (_scrubProgress - deltaProgress).clamp(0.0, 1.0);
             });
           },
           onHorizontalDragEnd: (details) {
             widget.onSeek(
-              Duration(milliseconds: (widget.duration.inMilliseconds *
-                  _scrubProgress).round()),
+              Duration(milliseconds: (widget.duration.inMilliseconds * _scrubProgress).round()),
             );
             setState(() => _isDragging = false);
           },
+          onHorizontalDragCancel: () => setState(() => _isDragging = false),
           child: SizedBox(
             height: 140,
             width: double.infinity,
             child: Stack(
               alignment: Alignment.center,
               children: [
-                // Waveform + playhead, painted together, viewport-sized
-                // canvas only — no more giant offscreen content width.
                 Positioned.fill(
-                  child: ClipRect(
-                    child: ShaderMask(
-                      shaderCallback: (rect) {
-                        return const LinearGradient(
-                          colors: [
-                            Colors.transparent,
-                            Colors.black,
-                            Colors.black,
-                            Colors.transparent,
-                          ],
-                          stops: [0.0, 0.12, 0.88, 1.0],
-                        ).createShader(rect);
-                      },
-                      blendMode: BlendMode.dstIn,
-                      child: AnimatedOpacity(
-                        opacity: widget.isLoading ? 0.4 : 1.0,
-                        duration: const Duration(milliseconds: 250),
-                        child: RepaintBoundary(
-                          child: CustomPaint(
-                            size: Size(viewportWidth, 140),
-                            painter: WaveformPainter(
-                              amplitudes: _amplitudes,
-                              progress: progress,
-                              translateX: translateX,
-                              playedColor: Colors.grey.shade600,
-                              // passed — dimmed
-                              unplayedColor: Colors.white,
-                              // upcoming — full white
-                              indicatorColor: Colors.black,
-                              barWidth: _barWidth,
-                              spacing: _spacing,
-                            ),
-                          ),
-                        ),
+                  child: RepaintBoundary(
+                    child: CustomPaint(
+                      size: Size(viewportWidth, 140),
+                      painter: WaveformPainter(
+                        amplitudes: _amplitudes,
+                        progress: progress,
+                        translateX: translateX,
+                        playedColor: Colors.grey.shade600, // Passed audio (dimmed)
+                        unplayedColor: Colors.white,       // Upcoming audio (white)
+                        indicatorColor: Colors.black,
+                        barWidth: _barWidth,
+                        spacing: _spacing,
                       ),
                     ),
                   ),
                 ),
-
-                // Elapsed time badge
                 Positioned(
                   left: 4,
                   bottom: 8,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
                       color: Colors.black.withValues(alpha: 0.85),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
                       _formatDuration(_displayedPosition),
-                      style: const TextStyle(color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold),
+                      style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
                     ),
                   ),
                 ),
-
-                // Total duration badge
                 Positioned(
                   right: 4,
                   bottom: 8,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
                       color: Colors.black.withValues(alpha: 0.85),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
                       _formatDuration(widget.duration),
-                      style: const TextStyle(color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold),
+                      style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
                     ),
                   ),
                 ),
