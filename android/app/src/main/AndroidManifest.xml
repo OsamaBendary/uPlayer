@@ -1,5 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Internet access (required for network calls: lyrics API, Google Fonts, etc.) -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!-- Permissions for Reading Local Audio Files -->
     <!-- Android 13+ (API 33+) -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />

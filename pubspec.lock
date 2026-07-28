@@ -2,7 +2,7 @@
 # See https://dart.dev/tools/pub/glossary#lockfile
 packages:
   animate_do:
-    dependency: "direct dev"
+    dependency: "direct main"
     description:
       name: animate_do
       sha256: ddc9bde27df897088e02553f0aec44c614595de01fe357ffb257ecaf7d40c8fa
@@ -10,7 +10,7 @@ packages:
     source: hosted
     version: "5.1.0"
   animate_gradient:
-    dependency: "direct dev"
+    dependency: "direct main"
     description:
       name: animate_gradient
       sha256: a8c4038f70c7a3b816b48add69067b772732941afbbf6ac96f54e98b336b2978
@@ -42,7 +42,7 @@ packages:
     source: hosted
     version: "2.13.1"
   audio_service:
-    dependency: "direct dev"
+    dependency: "direct main"
     description:
       name: audio_service
       sha256: "95f3267f3449eb5cf71c8fcf1d556f57af1e898e2dc5815fb168d1843653edb7"
@@ -74,7 +74,7 @@ packages:
     source: hosted
     version: "0.2.4"
   audio_waveforms:
-    dependency: "direct dev"
+    dependency: "direct main"
     description:
       name: audio_waveforms
       sha256: "658fef41bbab299184b65ba2fd749e8ec658c1f7d54a21f7cf97fa96b173b4ce"
@@ -241,7 +241,7 @@ packages:
     source: sdk
     version: "0.0.0"
   google_fonts:
-    dependency: "direct dev"
+    dependency: "direct main"
     description:
       name: google_fonts
       sha256: d3f251381df389f7418d4dff416bd27c0a23138df22969aafd28c4a4b1bb3cd6
@@ -321,7 +321,7 @@ packages:
     source: hosted
     version: "4.12.0"
   just_audio:
-    dependency: "direct dev"
+    dependency: "direct main"
     description:
       name: just_audio
       sha256: e60aa97b233ddea025e13dfac59195207f528fa5e9e4a4a49a8c0766701e5fe6
@@ -329,7 +329,7 @@ packages:
     source: hosted
     version: "0.10.6"
   just_audio_background:
-    dependency: "direct dev"
+    dependency: "direct main"
     description:
       name: just_audio_background
       sha256: "3900825701164577db65337792bc122b66f9eb1245ee47e7ae8244ae5ceb8030"
@@ -433,7 +433,7 @@ packages:
     source: hosted
     version: "9.4.1"
   on_audio_query:
-    dependency: "direct dev"
+    dependency: "direct main"
     description:
       name: on_audio_query
       sha256: "28d7a247f8a0580b5d1befba15c8d8fd7e1cf3cd8e0449d54a66fc2ef27adf10"
@@ -481,7 +481,7 @@ packages:
     source: hosted
     version: "2.2.0"
   palette_generator_master:
-    dependency: "direct dev"
+    dependency: "direct main"
     description:
       name: palette_generator_master
       sha256: "66e3e307a1e7b8ebbd5439d427be0bcb47d7035f45f1888c779122e3df9b9dce"

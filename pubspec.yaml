@@ -40,6 +40,15 @@ dependencies:
   flutter_svg: ^2.3.0
   http: ^1.2.2 #
   flutter_launcher_icons: ^0.14.4
+  just_audio:
+  audio_service:
+  palette_generator_master:
+  on_audio_query: ^2.9.0
+  animate_do:
+  google_fonts:
+  animate_gradient:
+  just_audio_background: ^0.0.1-beta.17
+  audio_waveforms:
 
 
 
@@ -53,15 +62,7 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
-  just_audio:
-  audio_service:
-  palette_generator_master:
-  on_audio_query: ^2.9.0
-  animate_do:
-  google_fonts:
-  animate_gradient:
-  just_audio_background: ^0.0.1-beta.17
-  audio_waveforms:
+
 
 flutter_launcher_icons:
   android: true
