@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/svg.dart';
@@ -7,6 +8,7 @@ import 'package:marquee/marquee.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 import 'package:u_player/core/services/access_to_files/access_service.dart';
 import 'package:u_player/core/theme/dynamic_gradient_background/dynamic_gradient_background.dart';
+import 'package:u_player/modules/library/pages/library_screen.dart';
 import 'package:u_player/modules/player/pages/widgets/fav_button.dart';
 import 'package:u_player/modules/player/pages/widgets/seek_bar.dart';
 import 'package:audio_waveforms/audio_waveforms.dart' hide PlayerState;
@@ -28,6 +30,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   final Map<int, List<double>> _waveformCache = {};
   int? _waveformLoadingId;
+
+  // --- Shuffle / repeat / sleep timer state ---
+  bool _isShuffleEnabled = false;
+  LoopMode _loopMode = LoopMode.off;
+  Timer? _sleepTimer;
+  Duration? _sleepTimerDuration; // total duration of the active timer, for display
+  DateTime? _sleepTimerEndsAt;
 
   @override
   void initState() {
@@ -149,8 +158,135 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
+  // --- Shuffle ---
+
+  Future<void> _toggleShuffle() async {
+    final next = !_isShuffleEnabled;
+    // just_audio's shuffle() only (re)computes the shuffle order — it has
+    // to be called before enabling shuffle mode for the new order to apply.
+    if (next) {
+      await _audioPlayer.shuffle();
+    }
+    await _audioPlayer.setShuffleModeEnabled(next);
+    if (!mounted) return;
+    setState(() => _isShuffleEnabled = next);
+  }
+
+  // --- Repeat ---
+
+  Future<void> _cycleRepeatMode() async {
+    final next = switch (_loopMode) {
+      LoopMode.off => LoopMode.all,
+      LoopMode.all => LoopMode.one,
+      LoopMode.one => LoopMode.off,
+    };
+    await _audioPlayer.setLoopMode(next);
+    if (!mounted) return;
+    setState(() => _loopMode = next);
+  }
+
+  // --- Sleep timer ---
+
+  void _startSleepTimer(Duration duration) {
+    _sleepTimer?.cancel();
+    final endsAt = DateTime.now().add(duration);
+    setState(() {
+      _sleepTimerDuration = duration;
+      _sleepTimerEndsAt = endsAt;
+      _sleepTimer = Timer(duration, () {
+        _audioPlayer.pause();
+        if (!mounted) return;
+        setState(() {
+          _sleepTimer = null;
+          _sleepTimerDuration = null;
+          _sleepTimerEndsAt = null;
+        });
+      });
+    });
+  }
+
+  void _cancelSleepTimer() {
+    _sleepTimer?.cancel();
+    setState(() {
+      _sleepTimer = null;
+      _sleepTimerDuration = null;
+      _sleepTimerEndsAt = null;
+    });
+  }
+
+  Future<void> _showSleepTimerSheet() async {
+    const presets = [
+      Duration(minutes: 15),
+      Duration(minutes: 30),
+      Duration(minutes: 45),
+      Duration(minutes: 60),
+    ];
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF1A1A1A),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 20, 20, 8),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Sleep timer',
+                    style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+              for (final preset in presets)
+                ListTile(
+                  title: Text(
+                    '${preset.inMinutes} minutes',
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _startSleepTimer(preset);
+                  },
+                ),
+              if (_sleepTimer != null)
+                ListTile(
+                  title: const Text(
+                    'Turn off timer',
+                    style: TextStyle(color: Colors.redAccent),
+                  ),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _cancelSleepTimer();
+                  },
+                ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // --- Swipe-down navigation ---
+
+  void _handleArtworkSwipe(DragEndDetails details) {
+    // Positive primaryVelocity means the drag ended moving downward.
+    if ((details.primaryVelocity ?? 0) > 250) {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const LibraryScreen()),
+      );
+    }
+  }
+
   @override
   void dispose() {
+    _sleepTimer?.cancel();
     _audioPlayer.dispose();
     super.dispose();
   }
@@ -198,68 +334,72 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         mainAxisAlignment: MainAxisAlignment.start,
                         children: [
                           const SizedBox(height: 30),
-                          SizedBox(
-                            width: artworkSize,
-                            height: artworkSize,
-                            child: Stack(
-                              children: [
-                                Positioned.fill(
-                                  child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(20),
-                                    child: QueryArtworkWidget(
-                                      id: currentSong.id,
-                                      type: ArtworkType.AUDIO,
-                                      artworkWidth: artworkSize,
-                                      artworkHeight: artworkSize,
-                                      artworkBorder: BorderRadius.circular(20),
-                                      artworkFit: BoxFit.cover,
-                                      nullArtworkWidget: Container(
-                                        width: artworkSize,
-                                        height: artworkSize,
-                                        color: const Color(0xFF1A1A1A),
-                                        child: const Icon(
-                                          Icons.music_note_rounded,
-                                          color: Colors.white38,
-                                          size: 100,
+                          GestureDetector(
+                            behavior: HitTestBehavior.translucent,
+                            onVerticalDragEnd: _handleArtworkSwipe,
+                            child: SizedBox(
+                              width: artworkSize,
+                              height: artworkSize,
+                              child: Stack(
+                                children: [
+                                  Positioned.fill(
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(20),
+                                      child: QueryArtworkWidget(
+                                        id: currentSong.id,
+                                        type: ArtworkType.AUDIO,
+                                        artworkWidth: artworkSize,
+                                        artworkHeight: artworkSize,
+                                        artworkBorder: BorderRadius.circular(20),
+                                        artworkFit: BoxFit.cover,
+                                        nullArtworkWidget: Container(
+                                          width: artworkSize,
+                                          height: artworkSize,
+                                          color: const Color(0xFF1A1A1A),
+                                          child: const Icon(
+                                            Icons.music_note_rounded,
+                                            color: Colors.white38,
+                                            size: 100,
+                                          ),
                                         ),
                                       ),
                                     ),
                                   ),
-                                ),
-                                Positioned(
-                                  left: 0,
-                                  right: 0,
-                                  bottom: 0,
-                                  height: 80,
-                                  child: Container(
-                                    decoration: BoxDecoration(
-                                      borderRadius: const BorderRadius.only(
-                                        bottomLeft: Radius.circular(20),
-                                        bottomRight: Radius.circular(20),
-                                      ),
-                                      gradient: LinearGradient(
-                                        begin: Alignment.bottomCenter,
-                                        end: Alignment.topCenter,
-                                        colors: [
-                                          Colors.black.withValues(alpha: 0.7),
-                                          Colors.transparent,
-                                        ],
+                                  Positioned(
+                                    left: 0,
+                                    right: 0,
+                                    bottom: 0,
+                                    height: 80,
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        borderRadius: const BorderRadius.only(
+                                          bottomLeft: Radius.circular(20),
+                                          bottomRight: Radius.circular(20),
+                                        ),
+                                        gradient: LinearGradient(
+                                          begin: Alignment.bottomCenter,
+                                          end: Alignment.topCenter,
+                                          colors: [
+                                            Colors.black.withValues(alpha: 0.7),
+                                            Colors.transparent,
+                                          ],
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                                Positioned(
-                                  left: 12,
-                                  right: 12,
-                                  bottom: 8,
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      FavoriteButton(songId: currentSong.id, songTitle: currentSong.title),
-                                    ],
+                                  Positioned(
+                                    left: 12,
+                                    right: 12,
+                                    bottom: 8,
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        FavoriteButton(songId: currentSong.id, songTitle: currentSong.title),
+                                      ],
+                                    ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
                           ),
                           const SizedBox(height: 30),
@@ -354,7 +494,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                             ),
                           ),
                           Padding(
-                            padding:  EdgeInsets.symmetric(horizontal: horizontalPadding, vertical: 16),
+                            padding: EdgeInsets.symmetric(horizontal: horizontalPadding, vertical: 16),
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.start,
                               children: [
@@ -363,10 +503,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                     color: Colors.black.withValues(alpha: 0.15),
                                     borderRadius: BorderRadius.circular(14),
                                   ),
-                                    child: IconButton(
-                                        onPressed: (){},
-                                        icon: Icon(Icons.timer_outlined), color: Colors.grey,),
-
+                                  child: IconButton(
+                                    onPressed: _showSleepTimerSheet,
+                                    icon: const Icon(Icons.timer_outlined),
+                                    color: _sleepTimer != null ? Colors.white : Colors.grey,
+                                  ),
                                 ),
                                 Spacer(),
                                 Container(
@@ -375,14 +516,39 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                     borderRadius: BorderRadius.circular(14),
                                   ),
                                   child: IconButton(
-                                    onPressed: (){
-
-                                      _audioPlayer.playbackEvent.currentIndex;
-                                    },
-                                    icon: SvgPicture.asset("assets/icons/media-player-music-player-svgrepo-com.svg", color: Colors.grey,)),
-
+                                    onPressed: _cycleRepeatMode,
+                                    icon: Stack(
+                                      alignment: Alignment.center,
+                                      children: [
+                                        SvgPicture.asset(
+                                          "assets/icons/media-player-music-player-svgrepo-com.svg",
+                                          color: _loopMode == LoopMode.off ? Colors.grey : Colors.white,
+                                        ),
+                                        if (_loopMode == LoopMode.one)
+                                          Positioned(
+                                            right: -2,
+                                            top: -2,
+                                            child: Container(
+                                              padding: const EdgeInsets.all(2),
+                                              decoration: const BoxDecoration(
+                                                color: Colors.white,
+                                                shape: BoxShape.circle,
+                                              ),
+                                              child: const Text(
+                                                '1',
+                                                style: TextStyle(
+                                                  color: Colors.black,
+                                                  fontSize: 9,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
                                 ),
-                                SizedBox(width: 8,),
+                                SizedBox(width: 8),
                                 Container(
                                   decoration: BoxDecoration(
                                     color: Colors.black.withValues(alpha: 0.15),
@@ -390,11 +556,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                   ),
                                   child: IconButton(
                                     iconSize: 30,
-                                    onPressed: (){
-                                      _audioPlayer.shuffle();
-                                    },
-                                      icon: SvgPicture.asset("assets/icons/music-player-random-svgrepo-com.svg", color: Colors.grey,)),
-
+                                    onPressed: _toggleShuffle,
+                                    icon: SvgPicture.asset(
+                                      "assets/icons/music-player-random-svgrepo-com.svg",
+                                      color: _isShuffleEnabled ? Colors.white : Colors.grey,
+                                    ),
+                                  ),
                                 ),
                               ],
                             ),
@@ -442,10 +609,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                             backgroundColor: Colors.black,
                                             radius: 47,
                                             child: isPlaying ? SvgPicture.asset("assets/icons/media-player-music-pause-svgrepo-com.svg", color: Colors.white, width: 50, height: 50) :
-                                        Padding(
-                                        padding: const EdgeInsets.only(left: 4),
-                                        child: SvgPicture.asset("assets/icons/music-play-play-button-svgrepo-com.svg", color: Colors.white, width: 50, height: 50),
-                                          ),),
+                                            Padding(
+                                              padding: const EdgeInsets.only(left: 4),
+                                              child: SvgPicture.asset("assets/icons/music-play-play-button-svgrepo-com.svg", color: Colors.white, width: 50, height: 50),
+                                            ),),
                                           onPressed: () {
                                             if (isPlaying) {
                                               _audioPlayer.pause();
