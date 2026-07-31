@@ -24,12 +24,9 @@ class LyricsResult {
 }
 
 /// Fetches lyrics from Lrclib (https://lrclib.net) — a free, open,
-/// no-auth-required API.
 class LyricsService {
   static const String _base = 'https://lrclib.net/api';
 
-  // lrclib.net asks that clients identify themselves. Update the URL to
-  // point at your actual repo/homepage if you have one.
   static const Map<String, String> _headers = {
     'User-Agent': 'UPlayer/1.0.0 (https://github.com/yourname/u_player)',
   };
@@ -45,10 +42,7 @@ class LyricsService {
       if (exact != null) return exact;
       return await _searchFallback(title: title, artist: artist);
     } catch (e, st) {
-      // TEMP diagnostic logging — remove once root cause is confirmed.
-      // ignore: avoid_print
       print('[LyricsService] ERROR: $e');
-      // ignore: avoid_print
       print('[LyricsService] STACK: $st');
       return null;
     }
@@ -68,14 +62,11 @@ class LyricsService {
     };
     final uri = Uri.parse('$_base/get').replace(queryParameters: params);
 
-    // ignore: avoid_print
     print('[LyricsService] GET $uri');
 
     final response = await http.get(uri, headers: _headers).timeout(const Duration(seconds: 8));
 
-    // ignore: avoid_print
     print('[LyricsService] /get -> ${response.statusCode}');
-    // ignore: avoid_print
     print('[LyricsService] body: ${response.body}');
 
     if (response.statusCode != 200) return null;
@@ -89,14 +80,11 @@ class LyricsService {
       'artist_name': artist,
     });
 
-    // ignore: avoid_print
     print('[LyricsService] GET $uri');
 
     final response = await http.get(uri, headers: _headers).timeout(const Duration(seconds: 8));
 
-    // ignore: avoid_print
     print('[LyricsService] /search -> ${response.statusCode}');
-    // ignore: avoid_print
     print('[LyricsService] body: ${response.body}');
 
     if (response.statusCode != 200) return null;

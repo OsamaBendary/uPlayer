@@ -1,4 +1,7 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:on_audio_query/on_audio_query.dart';
 import 'package:u_player/core/models/library_group.dart';
 import 'package:u_player/core/services/player/playback_controller.dart';
 import 'package:u_player/core/theme/dynamic_gradient_background/dynamic_gradient_background.dart';
@@ -7,12 +10,36 @@ import 'package:u_player/modules/library/widgets/album_card.dart';
 import 'package:u_player/modules/library/widgets/label_chip.dart';
 import 'package:u_player/modules/library/widgets/library_detail_header.dart';
 
-class ArtistScreen extends StatelessWidget {
+class ArtistScreen extends StatefulWidget {
   final ArtistGroup artist;
 
   const ArtistScreen({super.key, required this.artist});
 
-  void _handleHorizontalSwipe(BuildContext context, DragEndDetails details) {
+  @override
+  State<ArtistScreen> createState() => _ArtistScreenState();
+}
+
+class _ArtistScreenState extends State<ArtistScreen> {
+  late final Future<Uint8List?> _mainArtworkFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    // Fetched here purely to *sequence* things, not to render with — the
+    // header queries its own copy independently. The album grid below uses
+    // shrinkWrap + NeverScrollableScrollPhysics, which means every
+    // AlbumCard in it builds (and fires its own artwork query) immediately,
+    // all racing the header's artist-photo query on the same plugin
+    // channel with no guaranteed order. Gating the grid behind this future
+    // means the artist's main photo is already resolving — usually already
+    // painted — before any album art queries even start.
+    _mainArtworkFuture = OnAudioQuery().queryArtwork(
+      widget.artist.representativeSong.id,
+      ArtworkType.AUDIO,
+    );
+  }
+
+  void _handleHorizontalSwipe(DragEndDetails details) {
     final velocity = details.primaryVelocity ?? 0;
     if (velocity.abs() > 250) {
       Navigator.of(context).maybePop();
@@ -21,6 +48,7 @@ class ArtistScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final artist = widget.artist;
     final albums = artist.albums;
     final artHeroTag = 'artist-art-${artist.name}';
     final nameHeroTag = 'artist-name-${artist.name}';
@@ -29,7 +57,7 @@ class ArtistScreen extends StatelessWidget {
       backgroundColor: Colors.black,
       body: GestureDetector(
         behavior: HitTestBehavior.translucent,
-        onHorizontalDragEnd: (details) => _handleHorizontalSwipe(context, details),
+        onHorizontalDragEnd: _handleHorizontalSwipe,
         child: DynamicGradientBackground(
           songId: artist.representativeSong.id,
           child: SafeArea(
@@ -74,42 +102,55 @@ class ArtistScreen extends StatelessWidget {
                             style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
                           ),
                         ),
-                        LayoutBuilder(
-                          builder: (context, constraints) {
-                            const crossAxisCount = 2;
-                            const spacing = 16.0;
-                            final itemWidth =
-                                (constraints.maxWidth - spacing * (crossAxisCount - 1)) / crossAxisCount;
-                            final itemHeight = AlbumCard.estimatedHeightForWidth(itemWidth);
+                        // Waits for _mainArtworkFuture (the header's photo)
+                        // before building any AlbumCard, so the artist's
+                        // main photo isn't stuck competing with a grid's
+                        // worth of album-art queries for the same channel.
+                        FutureBuilder<Uint8List?>(
+                          future: _mainArtworkFuture,
+                          builder: (context, snapshot) {
+                            if (snapshot.connectionState != ConnectionState.done) {
+                              return const SizedBox.shrink();
+                            }
 
-                            return GridView.builder(
-                              shrinkWrap: true,
-                              physics: const NeverScrollableScrollPhysics(),
-                              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: crossAxisCount,
-                                mainAxisSpacing: spacing,
-                                crossAxisSpacing: spacing,
-                                mainAxisExtent: itemHeight,
-                              ),
-                              itemCount: albums.length,
-                              itemBuilder: (context, index) {
-                                final album = albums[index];
+                            return LayoutBuilder(
+                              builder: (context, constraints) {
+                                const crossAxisCount = 2;
+                                const spacing = 16.0;
+                                final itemWidth =
+                                    (constraints.maxWidth - spacing * (crossAxisCount - 1)) / crossAxisCount;
+                                final itemHeight = AlbumCard.estimatedHeightForWidth(itemWidth);
 
-                                return AnimatedBuilder(
-                                  animation: PlaybackController.instance,
-                                  builder: (context, _) {
-                                    final currentPlayingSong = PlaybackController.instance.currentSong;
-                                    final isPlaying = currentPlayingSong != null &&
-                                        album.songs.any((s) => s.id == currentPlayingSong.id);
+                                return GridView.builder(
+                                  shrinkWrap: true,
+                                  physics: const NeverScrollableScrollPhysics(),
+                                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                                    crossAxisCount: crossAxisCount,
+                                    mainAxisSpacing: spacing,
+                                    crossAxisSpacing: spacing,
+                                    mainAxisExtent: itemHeight,
+                                  ),
+                                  itemCount: albums.length,
+                                  itemBuilder: (context, index) {
+                                    final album = albums[index];
 
-                                    return AlbumCard(
-                                      album: album,
-                                      isPlaying: isPlaying,
-                                      onTap: () {
-                                        Navigator.of(context).push(
-                                          MaterialPageRoute(
-                                            builder: (_) => AlbumSongListScreen(album: album),
-                                          ),
+                                    return AnimatedBuilder(
+                                      animation: PlaybackController.instance,
+                                      builder: (context, _) {
+                                        final currentPlayingSong = PlaybackController.instance.currentSong;
+                                        final isPlaying = currentPlayingSong != null &&
+                                            album.songs.any((s) => s.id == currentPlayingSong.id);
+
+                                        return AlbumCard(
+                                          album: album,
+                                          isPlaying: isPlaying,
+                                          onTap: () {
+                                            Navigator.of(context).push(
+                                              MaterialPageRoute(
+                                                builder: (_) => AlbumSongListScreen(album: album),
+                                              ),
+                                            );
+                                          },
                                         );
                                       },
                                     );

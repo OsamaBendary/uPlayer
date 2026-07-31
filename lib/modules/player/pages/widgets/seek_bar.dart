@@ -142,8 +142,8 @@ class _WaveformSeekbarState extends State<WaveformSeekbar> {
                         amplitudes: _amplitudes,
                         progress: progress,
                         translateX: translateX,
-                        playedColor: Colors.grey.shade600, // Passed audio (dimmed)
-                        unplayedColor: Colors.white,       // Upcoming audio (white)
+                        playedColor: Colors.grey.shade600,
+                        unplayedColor: Colors.white,
                         indicatorColor: Colors.black,
                         barWidth: _barWidth,
                         spacing: _spacing,

@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 import 'package:u_player/core/models/library_group.dart';
@@ -9,7 +11,7 @@ import 'package:u_player/modules/player/pages/player_screen.dart';
 /// One screen, two uses: an album's tracklist, and an artist's "all songs"
 /// bar. Both need the same top-third-hero-header + song-list layout, just
 /// with different data feeding it.
-class AlbumSongListScreen extends StatelessWidget {
+class AlbumSongListScreen extends StatefulWidget {
   final String title;
   final String subtitle;
   final List<SongModel> songs;
@@ -57,33 +59,57 @@ class AlbumSongListScreen extends StatelessWidget {
     );
   }
 
+  @override
+  State<AlbumSongListScreen> createState() => _AlbumSongListScreenState();
+}
+
+class _AlbumSongListScreenState extends State<AlbumSongListScreen> {
+  late final Future<Uint8List?> _artworkFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    // Fetched exactly once for the whole screen — every track's tile used
+    // to independently call QueryArtworkWidget(id: song.id, ...), which for
+    // an album means N separate on_audio_query round-trips for what's
+    // almost always the exact same embedded image. This fetches the
+    // representative track's artwork a single time and every tile below
+    // just paints the same bytes via Image.memory.
+    _artworkFuture = OnAudioQuery().queryArtwork(
+      widget.artworkSongId,
+      ArtworkType.AUDIO,
+      size: 300,
+      quality: 100,
+      format: ArtworkFormat.PNG,
+    );
+  }
+
   // Swiping either direction here goes back to whatever screen pushed this
   // one (album grid, or the artist screen) — not all the way to the player.
-  void _handleHorizontalSwipe(BuildContext context, DragEndDetails details) {
+  void _handleHorizontalSwipe(DragEndDetails details) {
     final velocity = details.primaryVelocity ?? 0;
     if (velocity.abs() > 250) {
       Navigator.of(context).maybePop();
     }
   }
 
-  Future<void> _playSong(BuildContext context, SongModel song) async {
+  Future<void> _playSong(SongModel song) async {
     // Queue exactly this screen's list (the album, or the artist's "all
     // songs") in order, starting at the tapped track — instead of jumping
     // into the full device library, which is what made playback feel like
     // it was skipping to random albums before.
-    final startIndex = songs.indexWhere((s) => s.id == song.id);
-    await PlaybackController.instance.playQueue(songs, startIndex: startIndex == -1 ? 0 : startIndex);
-    if (!context.mounted) return;
+    final startIndex = widget.songs.indexWhere((s) => s.id == song.id);
+    await PlaybackController.instance.playQueue(widget.songs, startIndex: startIndex == -1 ? 0 : startIndex);
+    if (!mounted) return;
     Navigator.of(context).push(
       MaterialPageRoute(
         // These are the same tags LibraryDetailHeader is using below, on
         // this exact screen. Handing them to PlayerScreen is what lets the
         // artwork/title fly from this header into the player on the way
-        // in, and back into it here when you swipe the player down —
-        // previously nothing was passed, so that transition never fired.
+        // in, and back into it here when you swipe the player down.
         builder: (_) => PlayerScreen(
-          heroArtTag: heroArtTag,
-          heroTitleTag: heroTitleTag,
+          heroArtTag: widget.heroArtTag,
+          heroTitleTag: widget.heroTitleTag,
         ),
       ),
     );
@@ -95,29 +121,36 @@ class AlbumSongListScreen extends StatelessWidget {
       backgroundColor: Colors.black,
       body: GestureDetector(
         behavior: HitTestBehavior.translucent,
-        onHorizontalDragEnd: (details) => _handleHorizontalSwipe(context, details),
+        onHorizontalDragEnd: _handleHorizontalSwipe,
         child: DynamicGradientBackground(
-          songId: artworkSongId,
+          songId: widget.artworkSongId,
           child: SafeArea(
             bottom: false,
             child: Column(
               children: [
                 LibraryDetailHeader(
-                  artworkSongId: artworkSongId,
-                  title: title,
-                  subtitle: subtitle,
-                  heroArtTag: heroArtTag,
-                  heroTitleTag: heroTitleTag,
+                  artworkSongId: widget.artworkSongId,
+                  title: widget.title,
+                  subtitle: widget.subtitle,
+                  heroArtTag: widget.heroArtTag,
+                  heroTitleTag: widget.heroTitleTag,
                 ),
                 Expanded(
-                  child: ListView.separated(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    itemCount: songs.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 4),
-                    itemBuilder: (context, index) => _SongTile(
-                      song: songs[index],
-                      onTap: () => _playSong(context, songs[index]),
-                    ),
+                  child: FutureBuilder<Uint8List?>(
+                    future: _artworkFuture,
+                    builder: (context, artworkSnapshot) {
+                      final sharedArtwork = artworkSnapshot.data;
+                      return ListView.separated(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        itemCount: widget.songs.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 4),
+                        itemBuilder: (context, index) => _SongTile(
+                          song: widget.songs[index],
+                          sharedArtwork: sharedArtwork,
+                          onTap: () => _playSong(widget.songs[index]),
+                        ),
+                      );
+                    },
                   ),
                 ),
               ],
@@ -131,9 +164,10 @@ class AlbumSongListScreen extends StatelessWidget {
 
 class _SongTile extends StatelessWidget {
   final SongModel song;
+  final Uint8List? sharedArtwork;
   final VoidCallback onTap;
 
-  const _SongTile({required this.song, required this.onTap});
+  const _SongTile({required this.song, required this.sharedArtwork, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -163,22 +197,18 @@ class _SongTile extends StatelessWidget {
                 children: [
                   ClipRRect(
                     borderRadius: BorderRadius.circular(12),
-                    child: QueryArtworkWidget(
-                      id: song.id,
-                      type: ArtworkType.AUDIO,
-                      artworkWidth: 56,
-                      artworkHeight: 56,
-                      artworkFit: BoxFit.cover,
-                      artworkBorder: BorderRadius.circular(12),
-                      quality: 100,
-                      format: ArtworkFormat.PNG,
-                      size: 300,
-                      nullArtworkWidget: Container(
-                        width: 56,
-                        height: 56,
-                        color: const Color(0xFF1A1A1A),
-                        child: const Icon(Icons.music_note_rounded, color: Colors.white38),
-                      ),
+                    child: sharedArtwork != null
+                        ? Image.memory(
+                      sharedArtwork!,
+                      width: 56,
+                      height: 56,
+                      fit: BoxFit.cover,
+                    )
+                        : Container(
+                      width: 56,
+                      height: 56,
+                      color: const Color(0xFF1A1A1A),
+                      child: const Icon(Icons.music_note_rounded, color: Colors.white38),
                     ),
                   ),
                   const SizedBox(width: 14),

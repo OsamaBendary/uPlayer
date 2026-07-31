@@ -4,6 +4,8 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:u_player/modules/player/pages/player_screen.dart';
 import 'package:animate_gradient/animate_gradient.dart';
 
+import '../library/pages/library_screen.dart';
+
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -22,7 +24,7 @@ class _SplashScreenState extends State<SplashScreen> {
   void _navigate() async{
     await Future.delayed(Duration(seconds: 3));
     if (!mounted){return;}
-    Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const PlayerScreen()));
+    Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const LibraryScreen()));
 }
 
   @override
@@ -59,6 +61,4 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 }
 
-class PlayerSreen {
-  const PlayerSreen();
-}
+
