@@ -28,7 +28,7 @@ A high-performance, aesthetically crafted local music player built with Flutter.
 
 ## TODO
 * **Add playlists**
-* **Fix songs' artwork for showing multiple albums**
+* **Fix songs' artwork when showing multiple albums**
 ---
 
 ## 📄 License
