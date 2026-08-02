@@ -68,7 +68,7 @@ dev_dependencies:
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/logo/Gemini_Generated_Image_l9bjm3l9bjm3l9bj.png"
+  image_path: "assets/logo/Gemini_Generated_Image_p8ct2vp8ct2vp8ct.png"
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
