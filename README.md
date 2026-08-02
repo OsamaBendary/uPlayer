@@ -33,4 +33,4 @@ A high-performance, aesthetically crafted local music player built with Flutter.
 
 ## 📄 License
 
-Distributed under the MIT License. See `LICENSE` for more information.
+This project is for portfolio and educational purposes.
