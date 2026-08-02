@@ -103,20 +103,48 @@ class LyricsService {
     }
 
     final lines = <LyricLine>[];
-    final lineExp = RegExp(r'^\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)$');
-    for (final rawLine in syncedRaw.split('\n')) {
-      final match = lineExp.firstMatch(rawLine);
-      if (match == null) continue;
-      final minutes = int.parse(match.group(1)!);
-      final seconds = int.parse(match.group(2)!);
-      final fraction = match.group(3)!;
-      final millis = fraction.length == 2 ? int.parse(fraction) * 10 : int.parse(fraction);
-      final text = match.group(4)!.trim();
+
+    // Matches a single leading timestamp tag, e.g. "[01:23.45]". Lines can
+    // carry more than one of these (repeated-line LRC syntax), so we scan
+    // for all of them per line rather than just the first.
+    final tagExp = RegExp(r'\[(\d{2}):(\d{2})\.(\d{2,3})\]');
+
+    // Normalize line endings first: if the source uses CRLF, splitting on
+    // '\n' alone leaves a trailing '\r' on every line, which breaks a
+    // '$'-anchored match and silently drops every single line.
+    final normalized = syncedRaw.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+
+    for (final rawLine in normalized.split('\n')) {
+      final line = rawLine.trim();
+      if (line.isEmpty) continue;
+
+      final tags = tagExp.allMatches(line).toList();
+      if (tags.isEmpty) continue;
+
+      // The lyric text is whatever follows the last timestamp tag.
+      final text = line.substring(tags.last.end).trim();
       if (text.isEmpty) continue;
-      lines.add(LyricLine(Duration(minutes: minutes, seconds: seconds, milliseconds: millis), text));
+
+      // Emit one LyricLine per tag, so repeated-line syntax like
+      // "[00:12.00][00:45.00]same line" produces two synced entries.
+      for (final tag in tags) {
+        final minutes = int.parse(tag.group(1)!);
+        final seconds = int.parse(tag.group(2)!);
+        final fraction = tag.group(3)!;
+        final millis = fraction.length == 2 ? int.parse(fraction) * 10 : int.parse(fraction);
+        lines.add(LyricLine(
+          Duration(minutes: minutes, seconds: seconds, milliseconds: millis),
+          text,
+        ));
+      }
     }
 
     if (lines.isEmpty) return LyricsResult(plain: plain);
+
+    // Guarantee chronological order regardless of source formatting —
+    // both the overlay and the full-screen view assume ascending time.
+    lines.sort((a, b) => a.time.compareTo(b.time));
+
     return LyricsResult(synced: lines, plain: plain);
   }
 }

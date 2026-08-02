@@ -76,19 +76,47 @@ class _LibraryScreenState extends State<LibraryScreen> {
   final LocalAudioRepository _audioRepository = LocalAudioRepository();
   final PlaybackController _controller = PlaybackController.instance;
   final PageController _pageController = PageController();
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
 
   int _currentIndex = 0;
+  String _searchQuery = '';
+
+  // Grouping the whole library into artists/albums is only needed while
+  // searching, and only needs to happen again when the song list itself
+  // changes — not on every keystroke.
+  List<SongModel>? _groupCacheSongs;
+  List<ArtistGroup> _cachedArtists = [];
+  List<AlbumGroup> _cachedAlbums = [];
 
   @override
   void initState() {
     super.initState();
     _controller.ensureInitialized();
+    _searchController.addListener(_onSearchChanged);
   }
 
   @override
   void dispose() {
     _pageController.dispose();
+    _searchController.removeListener(_onSearchChanged);
+    _searchController.dispose();
+    _searchFocusNode.dispose();
     super.dispose();
+  }
+
+  void _onSearchChanged() {
+    final next = _searchController.text.trim();
+    if (next != _searchQuery) {
+      setState(() => _searchQuery = next);
+    }
+  }
+
+  void _ensureSearchGroups(List<SongModel> songs) {
+    if (identical(_groupCacheSongs, songs)) return;
+    _groupCacheSongs = songs;
+    _cachedArtists = groupSongsByArtist(songs);
+    _cachedAlbums = groupSongsByAlbum(songs);
   }
 
   Future<void> _openFolderPicker() async {
@@ -144,6 +172,27 @@ class _LibraryScreenState extends State<LibraryScreen> {
         final isLoading = _controller.isLoading;
         final songs = _controller.songs;
 
+        final query = _searchQuery.toLowerCase();
+        final isSearching = query.isNotEmpty;
+
+        List<SongModel> matchedSongs = const [];
+        List<AlbumGroup> matchedAlbums = const [];
+        List<ArtistGroup> matchedArtists = const [];
+
+        if (isSearching) {
+          _ensureSearchGroups(songs);
+
+          matchedSongs = songs.where((s) {
+            final title = s.title.toLowerCase();
+            final artist = (s.artist ?? '').toLowerCase();
+            final album = (s.album ?? '').toLowerCase();
+            return title.contains(query) || artist.contains(query) || album.contains(query);
+          }).toList();
+
+          matchedAlbums = _cachedAlbums.where((a) => a.name.toLowerCase().contains(query)).toList();
+          matchedArtists = _cachedArtists.where((a) => a.name.toLowerCase().contains(query)).toList();
+        }
+
         return Scaffold(
           backgroundColor: Colors.black,
           body: AppGradientBackground(
@@ -183,13 +232,28 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  _SortToggle(
-                    currentIndex: _currentIndex,
-                    onChanged: _onTabChanged,
+                  _LibrarySearchBar(
+                    controller: _searchController,
+                    focusNode: _searchFocusNode,
+                    onClear: () => _searchController.clear(),
                   ),
                   const SizedBox(height: 12),
+                  if (!isSearching) ...[
+                    _SortToggle(
+                      currentIndex: _currentIndex,
+                      onChanged: _onTabChanged,
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                   Expanded(
-                    child: PageView(
+                    child: isSearching
+                        ? _SearchResultsView(
+                      query: _searchQuery,
+                      songs: matchedSongs,
+                      albums: matchedAlbums,
+                      artists: matchedArtists,
+                    )
+                        : PageView(
                       controller: _pageController,
                       onPageChanged: (index) => setState(() => _currentIndex = index),
                       children: [
@@ -727,6 +791,285 @@ class _SortToggle extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Search field for songs/albums/artists, shown pinned above the tab
+/// toggle. Purely presentational — filtering happens in the parent.
+class _LibrarySearchBar extends StatelessWidget {
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final VoidCallback onClear;
+
+  const _LibrarySearchBar({
+    required this.controller,
+    required this.focusNode,
+    required this.onClear,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Container(
+        height: 46,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.2),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.search_rounded, color: Colors.white54, size: 20),
+            const SizedBox(width: 8),
+            Expanded(
+              child: TextField(
+                controller: controller,
+                focusNode: focusNode,
+                textInputAction: TextInputAction.search,
+                cursorColor: Colors.white,
+                style: const TextStyle(color: Colors.white, fontSize: 15),
+                decoration: const InputDecoration(
+                  isDense: true,
+                  border: InputBorder.none,
+                  hintText: 'Search songs, albums, artists',
+                  hintStyle: TextStyle(color: Colors.white38, fontSize: 15),
+                ),
+              ),
+            ),
+            ValueListenableBuilder<TextEditingValue>(
+              valueListenable: controller,
+              builder: (context, value, _) {
+                if (value.text.isEmpty) return const SizedBox.shrink();
+                return GestureDetector(
+                  onTap: onClear,
+                  child: const Padding(
+                    padding: EdgeInsets.only(left: 8),
+                    child: Icon(Icons.close_rounded, color: Colors.white54, size: 18),
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Combined search results: matching artists, albums, and songs, each in
+/// their own section. Sections with no matches are omitted entirely.
+class _SearchResultsView extends StatelessWidget {
+  final String query;
+  final List<SongModel> songs;
+  final List<AlbumGroup> albums;
+  final List<ArtistGroup> artists;
+
+  const _SearchResultsView({
+    required this.query,
+    required this.songs,
+    required this.albums,
+    required this.artists,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (songs.isEmpty && albums.isEmpty && artists.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Text(
+            'No results for "$query"',
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white54, fontSize: 15),
+          ),
+        ),
+      );
+    }
+
+    return ListView(
+      padding: const EdgeInsets.only(left: 16, right: 16, bottom: 24),
+      children: [
+        if (artists.isNotEmpty) ...[
+          const _SearchSectionLabel('Artists'),
+          const SizedBox(height: 8),
+          ...artists.map(
+                (artist) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: AnimatedBuilder(
+                animation: PlaybackController.instance,
+                builder: (context, _) {
+                  final currentPlayingSong = PlaybackController.instance.currentSong;
+                  final isPlaying = currentPlayingSong != null &&
+                      artist.songs.any((s) => s.id == currentPlayingSong.id);
+                  return ArtistCard(
+                    artist: artist,
+                    isPlaying: isPlaying,
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => ArtistScreen(artist: artist)),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+        if (albums.isNotEmpty) ...[
+          const _SearchSectionLabel('Albums'),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: AlbumCard.estimatedHeightForWidth(140),
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: albums.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 12),
+              itemBuilder: (context, index) {
+                final album = albums[index];
+                return SizedBox(
+                  width: 140,
+                  child: AnimatedBuilder(
+                    animation: PlaybackController.instance,
+                    builder: (context, _) {
+                      final currentPlayingSong = PlaybackController.instance.currentSong;
+                      final isPlaying = currentPlayingSong != null &&
+                          album.songs.any((s) => s.id == currentPlayingSong.id);
+                      return AlbumCard(
+                        album: album,
+                        isPlaying: isPlaying,
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => AlbumSongListScreen(album: album)),
+                        ),
+                      );
+                    },
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 20),
+        ],
+        if (songs.isNotEmpty) ...[
+          const _SearchSectionLabel('Songs'),
+          const SizedBox(height: 8),
+          ...songs.map(
+                (song) => _SearchSongTile(
+              song: song,
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => AlbumSongListScreen.fromSongs(
+                    title: 'Search Results',
+                    subtitle: '${songs.length} song${songs.length == 1 ? '' : 's'}',
+                    songs: songs,
+                    artworkSongId: song.id,
+                    heroArtTag: 'search-art-${song.id}',
+                    heroTitleTag: 'search-title-${song.id}',
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _SearchSectionLabel extends StatelessWidget {
+  final String label;
+  const _SearchSectionLabel(this.label);
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      label,
+      style: const TextStyle(
+        color: Colors.white70,
+        fontSize: 13,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0.5,
+      ),
+    );
+  }
+}
+
+/// Lightweight row for a single song match. Tapping opens a list screen
+/// scoped to the current search results, consistent with how "All Songs"
+/// and "Favorites" are opened elsewhere in the library.
+class _SearchSongTile extends StatelessWidget {
+  final SongModel song;
+  final VoidCallback onTap;
+
+  const _SearchSongTile({required this.song, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: PlaybackController.instance,
+      builder: (context, _) {
+        final isPlaying = PlaybackController.instance.currentSong?.id == song.id;
+        return Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: onTap,
+            child: Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: QueryArtworkWidget(
+                      id: song.id,
+                      type: ArtworkType.AUDIO,
+                      artworkWidth: 40,
+                      artworkHeight: 40,
+                      artworkFit: BoxFit.cover,
+                      nullArtworkWidget: Container(
+                        width: 40,
+                        height: 40,
+                        color: Colors.white10,
+                        child: const Icon(Icons.music_note_rounded, color: Colors.white38, size: 20),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          song.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: isPlaying ? Colors.greenAccent : Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          song.artist ?? 'Unknown Artist',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white54, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
