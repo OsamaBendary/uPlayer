@@ -483,6 +483,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                                             pageBuilder: (_, animation, __) => LyricsScreen(
                                                               song: currentSong,
                                                               heroTag: lyricsHeroTag,
+                                                              positionStream: _controller.audioPlayer.positionStream,
                                                             ),
                                                             transitionsBuilder: (_, animation, __, child) {
                                                               final scaleAnimation = CurvedAnimation(

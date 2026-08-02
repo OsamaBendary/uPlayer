@@ -6,6 +6,7 @@ import 'package:flutter/widgets.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:on_audio_query/on_audio_query.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:audio_waveforms/audio_waveforms.dart' hide PlayerState;
 import 'package:u_player/core/services/access_to_files/access_service.dart';
 import 'package:u_player/core/services/play_count/play_count_service.dart';
@@ -20,6 +21,12 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
   final PlayCountService _playCountService = PlayCountService();
   final PlaybackStateService _playbackStateService = PlaybackStateService();
   final AudioPlayer audioPlayer = AudioPlayer();
+  final OnAudioQuery _audioQuery = OnAudioQuery();
+
+  // Cached per album (falling back to per-song for tracks with no album),
+  // so a library of thousands of songs only decodes artwork once per
+  // unique album instead of once per track. Null value = "checked, no art".
+  final Map<int, String?> _artworkUriCache = {};
 
   Timer? _stateSaveTimer;
   static const Duration _stateSaveInterval = Duration(seconds: 5);
@@ -76,7 +83,7 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
 
       currentIndex = initialIndex;
       await audioPlayer.setAudioSource(
-        _createPlaylist(queue),
+        await _createPlaylist(queue),
         initialIndex: initialIndex,
         initialPosition: initialPosition,
       );
@@ -146,7 +153,7 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
         final newIndex = playing != null ? queue.indexWhere((s) => s.id == playing.id) : 0;
         currentIndex = newIndex == -1 ? 0 : newIndex;
         await audioPlayer.setAudioSource(
-          _createPlaylist(queue),
+          await _createPlaylist(queue),
           initialIndex: currentIndex,
           initialPosition: position,
         );
@@ -156,10 +163,70 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
-  ConcatenatingAudioSource _createPlaylist(List<SongModel> list) {
+  /// Resolves a stable local file:// URI for a song's album art, decoding
+  /// and caching it on first use. Cached by album id so every track on the
+  /// same album reuses one decode + one file. Returns null if the track
+  /// has no art (not an error — plenty of tracks genuinely don't).
+  Future<String?> _resolveArtworkUri(SongModel song) async {
+    final cacheKey = song.albumId ?? song.id;
+    if (_artworkUriCache.containsKey(cacheKey)) {
+      return _artworkUriCache[cacheKey];
+    }
+
+    try {
+      final tempDir = await getTemporaryDirectory();
+      final file = File('${tempDir.path}/u_player_art_$cacheKey.jpg');
+
+      if (await file.exists() && await file.length() > 0) {
+        final uri = file.uri.toString();
+        _artworkUriCache[cacheKey] = uri;
+        return uri;
+      }
+
+      final bytes = await _audioQuery.queryArtwork(
+        song.id,
+        ArtworkType.AUDIO,
+        format: ArtworkFormat.JPEG,
+        size: 400,
+      );
+
+      if (bytes == null || bytes.isEmpty) {
+        _artworkUriCache[cacheKey] = null;
+        return null;
+      }
+
+      await file.writeAsBytes(bytes, flush: true);
+      final uri = file.uri.toString();
+      _artworkUriCache[cacheKey] = uri;
+      return uri;
+    } catch (e) {
+      debugPrint('ARTWORK FAILED for "${song.title}": $e');
+      _artworkUriCache[cacheKey] = null;
+      return null;
+    }
+  }
+
+  Future<ConcatenatingAudioSource> _createPlaylist(List<SongModel> list) async {
+    // Resolve artwork in small batches rather than all at once — a couple
+    // hundred simultaneous platform-channel calls on a big library would
+    // stall startup; a couple hundred sequential ones would be slow. This
+    // splits the difference. Already-cached albums resolve instantly.
+    const batchSize = 8;
+    final artUris = List<String?>.filled(list.length, null);
+
+    for (var i = 0; i < list.length; i += batchSize) {
+      final end = (i + batchSize < list.length) ? i + batchSize : list.length;
+      final batchResults = await Future.wait(list.sublist(i, end).map(_resolveArtworkUri));
+      for (var j = 0; j < batchResults.length; j++) {
+        artUris[i + j] = batchResults[j];
+      }
+    }
+
     return ConcatenatingAudioSource(
       useLazyPreparation: true,
-      children: list.map((song) {
+      children: List.generate(list.length, (i) {
+        final song = list[i];
+        final artUriString = artUris[i];
         return AudioSource.uri(
           Uri.file(song.data),
           tag: MediaItem(
@@ -167,14 +234,10 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
             title: song.title,
             artist: song.artist == '<unknown>' ? 'Unknown Artist' : (song.artist ?? 'Unknown Artist'),
             album: song.album == '<unknown>' ? 'Unknown Album' : (song.album ?? 'Unknown Album'),
-            // No artUri here — see the note in the constructor comment
-            // above. Lock-screen/notification art is a nice-to-have; if
-            // you want it back, the safe path is decoding the artwork
-            // bytes (queryArtwork) and pointing artUri at a temp file:// —
-            // not a guessed content:// URI.
+            artUri: artUriString != null ? Uri.parse(artUriString) : null,
           ),
         );
-      }).toList(),
+      }),
     );
   }
 
@@ -199,7 +262,7 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
     queueIsWholeLibrary = _isSameSongs(queue, songs);
     currentIndex = clampedStart;
 
-    await audioPlayer.setAudioSource(_createPlaylist(queue), initialIndex: clampedStart);
+    await audioPlayer.setAudioSource(await _createPlaylist(queue), initialIndex: clampedStart);
 
     if (wasShuffled) {
       await audioPlayer.shuffle();
@@ -321,7 +384,7 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
     currentIndex = newIndex == -1 ? 0 : newIndex;
 
     await audioPlayer.setAudioSource(
-      _createPlaylist(queue),
+      await _createPlaylist(queue),
       initialIndex: currentIndex,
       initialPosition: position,
     );
