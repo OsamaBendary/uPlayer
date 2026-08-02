@@ -7,7 +7,9 @@ import 'package:u_player/core/services/player/playback_controller.dart';
 import 'package:u_player/core/services/player/seekbar_preference.dart';
 import 'package:u_player/core/theme/dynamic_gradient_background/dynamic_gradient_background.dart';
 import 'package:u_player/modules/library/pages/library_screen.dart';
+import 'package:u_player/modules/library/widgets/hero_flight_shuttles.dart';
 import 'package:u_player/modules/player/pages/lyrics_screen.dart';
+import 'package:u_player/modules/player/pages/widgets/artwork_swipe_detector.dart';
 import 'package:u_player/modules/player/pages/widgets/fav_button.dart';
 import 'package:u_player/modules/player/pages/widgets/seek_bar.dart';
 
@@ -45,29 +47,22 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _controller.ensureInitialized();
   }
 
-  void _handleArtworkVerticalSwipe(DragEndDetails details) {
-    if ((details.primaryVelocity ?? 0) > 250) {
-      _controller.isMiniPlayerDismissed.value = false;
+  void _handleArtworkSwipeDown() {
+    _controller.isMiniPlayerDismissed.value = false;
 
-      final navigator = Navigator.of(context);
-      if (navigator.canPop()) {
-        navigator.pop();
-      } else {
-        navigator.pushReplacement(
-          MaterialPageRoute(builder: (_) => const LibraryScreen()),
-        );
-      }
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+    } else {
+      navigator.pushReplacement(
+        MaterialPageRoute(builder: (_) => const LibraryScreen()),
+      );
     }
   }
 
-  void _handleArtworkHorizontalSwipe(DragEndDetails details) {
-    final velocity = details.primaryVelocity ?? 0;
-    if (velocity < -250) {
-      _controller.audioPlayer.seekToNext();
-    } else if (velocity > 250) {
-      _controller.audioPlayer.seekToPrevious();
-    }
-  }
+  void _handleArtworkSwipeLeft() => _controller.audioPlayer.seekToNext();
+
+  void _handleArtworkSwipeRight() => _controller.audioPlayer.seekToPrevious();
 
   Future<void> _showSleepTimerSheet() async {
     const presets = [
@@ -397,10 +392,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
                               mainAxisAlignment: MainAxisAlignment.start,
                               children: [
                                 const SizedBox(height: 30),
-                                GestureDetector(
-                                  behavior: HitTestBehavior.translucent,
-                                  onVerticalDragEnd: _handleArtworkVerticalSwipe,
-                                  onHorizontalDragEnd: _handleArtworkHorizontalSwipe,
+                                ArtworkSwipeDetector(
+                                  onSwipeDown: _handleArtworkSwipeDown,
+                                  onSwipeLeft: _handleArtworkSwipeLeft,
+                                  onSwipeRight: _handleArtworkSwipeRight,
                                   child: SizedBox(
                                     width: artworkSize,
                                     height: artworkSize,
@@ -409,6 +404,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                         Positioned.fill(
                                           child: Hero(
                                             tag: _heroArtTag,
+                                            flightShuttleBuilder: artworkFlightShuttleBuilder,
                                             child: ClipRRect(
                                               borderRadius: BorderRadius.circular(20),
                                               child: QueryArtworkWidget(

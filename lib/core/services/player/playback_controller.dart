@@ -2,21 +2,27 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 import 'package:audio_waveforms/audio_waveforms.dart' hide PlayerState;
 import 'package:u_player/core/services/access_to_files/access_service.dart';
 import 'package:u_player/core/services/play_count/play_count_service.dart';
+import 'package:u_player/core/services/playback_state/playback_state_service.dart';
 
 /// App-wide playback state.
-class PlaybackController extends ChangeNotifier {
+class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
   PlaybackController._internal();
   static final PlaybackController instance = PlaybackController._internal();
 
   final LocalAudioRepository _audioRepository = LocalAudioRepository();
   final PlayCountService _playCountService = PlayCountService();
+  final PlaybackStateService _playbackStateService = PlaybackStateService();
   final AudioPlayer audioPlayer = AudioPlayer();
+
+  Timer? _stateSaveTimer;
+  static const Duration _stateSaveInterval = Duration(seconds: 5);
 
   List<SongModel> songs = [];
   List<SongModel> queue = [];
@@ -56,7 +62,24 @@ class PlaybackController extends ChangeNotifier {
     queueIsWholeLibrary = true;
 
     if (loaded.isNotEmpty) {
-      await audioPlayer.setAudioSource(_createPlaylist(queue));
+      var initialIndex = 0;
+      var initialPosition = Duration.zero;
+
+      final lastSongId = await _playbackStateService.getLastSongId();
+      if (lastSongId != null) {
+        final restoredIndex = queue.indexWhere((s) => s.id == lastSongId);
+        if (restoredIndex != -1) {
+          initialIndex = restoredIndex;
+          initialPosition = await _playbackStateService.getLastPosition();
+        }
+      }
+
+      currentIndex = initialIndex;
+      await audioPlayer.setAudioSource(
+        _createPlaylist(queue),
+        initialIndex: initialIndex,
+        initialPosition: initialPosition,
+      );
       _loadWaveformFor(queue[currentIndex]);
     }
 
@@ -70,9 +93,40 @@ class PlaybackController extends ChangeNotifier {
           currentIndex = index;
           _loadWaveformFor(queue[index]);
           _registerPlay(queue[index].id);
+          _persistPlaybackState();
           notifyListeners();
         }
       });
+
+      // Persist immediately whenever playback pauses/stops, so we don't
+      // lose more than a few seconds of position if the app is killed.
+      audioPlayer.playerStateStream.listen((state) {
+        if (!state.playing) {
+          _persistPlaybackState();
+        }
+      });
+    }
+
+    _startStateSaveTimer();
+
+    // The periodic timer only catches you every 5s, and only while the
+    // process is alive. Some Android OEMs (aggressive battery managers on
+    // Xiaomi/Huawei/OnePlus etc.) kill backgrounded processes the instant
+    // the app leaves the foreground, regardless of the foreground-service
+    // notification — no warning, no chance for a timer to fire again. This
+    // forces one last save the moment the app is backgrounded, which is
+    // most of what "resume where I left off after days" actually depends
+    // on in practice.
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached ||
+        state == AppLifecycleState.hidden) {
+      _persistPlaybackState();
     }
   }
 
@@ -106,9 +160,6 @@ class PlaybackController extends ChangeNotifier {
     return ConcatenatingAudioSource(
       useLazyPreparation: true,
       children: list.map((song) {
-        // Construct the Android MediaStore content URI for track artwork
-        final artUri = Uri.parse('content://media/external/audio/media/${song.id}/albumart');
-
         return AudioSource.uri(
           Uri.file(song.data),
           tag: MediaItem(
@@ -116,7 +167,11 @@ class PlaybackController extends ChangeNotifier {
             title: song.title,
             artist: song.artist == '<unknown>' ? 'Unknown Artist' : (song.artist ?? 'Unknown Artist'),
             album: song.album == '<unknown>' ? 'Unknown Album' : (song.album ?? 'Unknown Album'),
-            artUri: artUri, // <--- Emits artwork to system notification & lock screen
+            // No artUri here — see the note in the constructor comment
+            // above. Lock-screen/notification art is a nice-to-have; if
+            // you want it back, the safe path is decoding the artwork
+            // bytes (queryArtwork) and pointing artUri at a temp file:// —
+            // not a guessed content:// URI.
           ),
         );
       }).toList(),
@@ -154,6 +209,7 @@ class PlaybackController extends ChangeNotifier {
     await audioPlayer.play();
     notifyListeners();
     _registerPlay(queue[clampedStart].id);
+    _persistPlaybackState();
   }
 
   bool _isSameSongs(List<SongModel> a, List<SongModel> b) {
@@ -181,6 +237,14 @@ class PlaybackController extends ChangeNotifier {
 
   // --- Shuffle ---
 
+  Future<void> toggleShuffle() async {
+    if (isShuffleEnabled) {
+      await turnOffShuffle();
+    } else {
+      await shuffleThisList();
+    }
+  }
+
   Future<void> turnOffShuffle() async {
     await audioPlayer.setShuffleModeEnabled(false);
     isShuffleEnabled = false;
@@ -203,6 +267,21 @@ class PlaybackController extends ChangeNotifier {
   }
 
   // --- Repeat ---
+
+  Future<void> cycleRepeatMode() async {
+    switch (loopMode) {
+      case LoopMode.off:
+        await repeatThisList();
+        break;
+      case LoopMode.all:
+        await repeatOneSong();
+        break;
+      case LoopMode.one:
+      default:
+        await repeatOff();
+        break;
+    }
+  }
 
   Future<void> repeatOff() async {
     await audioPlayer.setLoopMode(LoopMode.off);
@@ -247,6 +326,24 @@ class PlaybackController extends ChangeNotifier {
       initialPosition: position,
     );
     await audioPlayer.play();
+  }
+
+  // --- Playback state persistence ---
+
+  void _startStateSaveTimer() {
+    _stateSaveTimer?.cancel();
+    _stateSaveTimer = Timer.periodic(_stateSaveInterval, (_) {
+      _persistPlaybackState();
+    });
+  }
+
+  Future<void> _persistPlaybackState() async {
+    final song = currentSong;
+    if (song == null) return;
+    await _playbackStateService.saveState(
+      songId: song.id,
+      position: audioPlayer.position,
+    );
   }
 
   // --- Sleep timer ---
@@ -329,7 +426,10 @@ class PlaybackController extends ChangeNotifier {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _sleepTimer?.cancel();
+    _stateSaveTimer?.cancel();
+    unawaited(_persistPlaybackState());
     audioPlayer.dispose();
     isPlayerScreenVisible.dispose();
     isMiniPlayerDismissed.dispose();

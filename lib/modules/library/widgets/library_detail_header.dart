@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:on_audio_query/on_audio_query.dart';
+import 'package:u_player/modules/library/widgets/hero_flight_shuttles.dart';
 import 'package:u_player/modules/library/widgets/label_chip.dart';
 
 /// Top 1/3-of-screen artwork with the title stacked over the bottom of it,
@@ -41,6 +42,9 @@ class LibraryDetailHeader extends StatelessWidget {
           children: [
             Hero(
               tag: heroArtTag,
+              // See hero_flight_shuttles.dart — avoids the flight visibly
+              // waiting on a fresh artwork decode.
+              flightShuttleBuilder: artworkFlightShuttleBuilder,
               child: QueryArtworkWidget(
                 id: artworkSongId,
                 type: ArtworkType.AUDIO,

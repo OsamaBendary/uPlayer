@@ -1,7 +1,4 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
-import 'package:on_audio_query/on_audio_query.dart';
 import 'package:u_player/core/models/library_group.dart';
 import 'package:u_player/core/services/player/playback_controller.dart';
 import 'package:u_player/core/theme/dynamic_gradient_background/dynamic_gradient_background.dart';
@@ -9,6 +6,7 @@ import 'package:u_player/modules/library/pages/album_song_list_screen.dart';
 import 'package:u_player/modules/library/widgets/album_card.dart';
 import 'package:u_player/modules/library/widgets/label_chip.dart';
 import 'package:u_player/modules/library/widgets/library_detail_header.dart';
+import 'package:u_player/modules/library/widgets/swipe_back_detector.dart';
 
 class ArtistScreen extends StatefulWidget {
   final ArtistGroup artist;
@@ -20,30 +18,22 @@ class ArtistScreen extends StatefulWidget {
 }
 
 class _ArtistScreenState extends State<ArtistScreen> {
-  late final Future<Uint8List?> _mainArtworkFuture;
+  // The header's QueryArtworkWidget kicks off its fetch the moment it's
+  // built. If the album grid builds in that same frame, every AlbumCard's
+  // own QueryArtworkWidget queues its fetch right behind it, and they all
+  // compete on the same platform channel — so the one photo you actually
+  // see immediately (the header) ends up waiting in line with a dozen
+  // others you haven't scrolled to yet. Holding the grid back until the
+  // frame after gives the header's request a real head start.
+  bool _showAlbums = false;
 
   @override
   void initState() {
     super.initState();
-    // Fetched here purely to *sequence* things, not to render with — the
-    // header queries its own copy independently. The album grid below uses
-    // shrinkWrap + NeverScrollableScrollPhysics, which means every
-    // AlbumCard in it builds (and fires its own artwork query) immediately,
-    // all racing the header's artist-photo query on the same plugin
-    // channel with no guaranteed order. Gating the grid behind this future
-    // means the artist's main photo is already resolving — usually already
-    // painted — before any album art queries even start.
-    _mainArtworkFuture = OnAudioQuery().queryArtwork(
-      widget.artist.representativeSong.id,
-      ArtworkType.AUDIO,
-    );
-  }
-
-  void _handleHorizontalSwipe(DragEndDetails details) {
-    final velocity = details.primaryVelocity ?? 0;
-    if (velocity.abs() > 250) {
-      Navigator.of(context).maybePop();
-    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() => _showAlbums = true);
+    });
   }
 
   @override
@@ -55,9 +45,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
 
     return Scaffold(
       backgroundColor: Colors.black,
-      body: GestureDetector(
-        behavior: HitTestBehavior.translucent,
-        onHorizontalDragEnd: _handleHorizontalSwipe,
+      body: SwipeBackDetector(
         child: DynamicGradientBackground(
           songId: artist.representativeSong.id,
           child: SafeArea(
@@ -102,63 +90,59 @@ class _ArtistScreenState extends State<ArtistScreen> {
                             style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
                           ),
                         ),
-                        // Waits for _mainArtworkFuture (the header's photo)
-                        // before building any AlbumCard, so the artist's
-                        // main photo isn't stuck competing with a grid's
-                        // worth of album-art queries for the same channel.
-                        FutureBuilder<Uint8List?>(
-                          future: _mainArtworkFuture,
-                          builder: (context, snapshot) {
-                            if (snapshot.connectionState != ConnectionState.done) {
-                              return const SizedBox.shrink();
-                            }
+                        AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 200),
+                          child: !_showAlbums
+                          // Reserves roughly the grid's real height (2
+                          // rows worth) so nothing jumps around when
+                          // the actual grid pops in a frame later.
+                              ? const SizedBox(key: ValueKey('albums-placeholder'), height: 1)
+                              : LayoutBuilder(
+                            key: const ValueKey('albums-grid'),
+                            builder: (context, constraints) {
+                              const crossAxisCount = 2;
+                              const spacing = 16.0;
+                              final itemWidth =
+                                  (constraints.maxWidth - spacing * (crossAxisCount - 1)) / crossAxisCount;
+                              final itemHeight = AlbumCard.estimatedHeightForWidth(itemWidth);
 
-                            return LayoutBuilder(
-                              builder: (context, constraints) {
-                                const crossAxisCount = 2;
-                                const spacing = 16.0;
-                                final itemWidth =
-                                    (constraints.maxWidth - spacing * (crossAxisCount - 1)) / crossAxisCount;
-                                final itemHeight = AlbumCard.estimatedHeightForWidth(itemWidth);
+                              return GridView.builder(
+                                shrinkWrap: true,
+                                physics: const NeverScrollableScrollPhysics(),
+                                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: crossAxisCount,
+                                  mainAxisSpacing: spacing,
+                                  crossAxisSpacing: spacing,
+                                  mainAxisExtent: itemHeight,
+                                ),
+                                itemCount: albums.length,
+                                itemBuilder: (context, index) {
+                                  final album = albums[index];
 
-                                return GridView.builder(
-                                  shrinkWrap: true,
-                                  physics: const NeverScrollableScrollPhysics(),
-                                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                                    crossAxisCount: crossAxisCount,
-                                    mainAxisSpacing: spacing,
-                                    crossAxisSpacing: spacing,
-                                    mainAxisExtent: itemHeight,
-                                  ),
-                                  itemCount: albums.length,
-                                  itemBuilder: (context, index) {
-                                    final album = albums[index];
+                                  return AnimatedBuilder(
+                                    animation: PlaybackController.instance,
+                                    builder: (context, _) {
+                                      final currentPlayingSong = PlaybackController.instance.currentSong;
+                                      final isPlaying = currentPlayingSong != null &&
+                                          album.songs.any((s) => s.id == currentPlayingSong.id);
 
-                                    return AnimatedBuilder(
-                                      animation: PlaybackController.instance,
-                                      builder: (context, _) {
-                                        final currentPlayingSong = PlaybackController.instance.currentSong;
-                                        final isPlaying = currentPlayingSong != null &&
-                                            album.songs.any((s) => s.id == currentPlayingSong.id);
-
-                                        return AlbumCard(
-                                          album: album,
-                                          isPlaying: isPlaying,
-                                          onTap: () {
-                                            Navigator.of(context).push(
-                                              MaterialPageRoute(
-                                                builder: (_) => AlbumSongListScreen(album: album),
-                                              ),
-                                            );
-                                          },
-                                        );
-                                      },
-                                    );
-                                  },
-                                );
-                              },
-                            );
-                          },
+                                      return AlbumCard(
+                                        album: album,
+                                        isPlaying: isPlaying,
+                                        onTap: () {
+                                          Navigator.of(context).push(
+                                            MaterialPageRoute(
+                                              builder: (_) => AlbumSongListScreen(album: album),
+                                            ),
+                                          );
+                                        },
+                                      );
+                                    },
+                                  );
+                                },
+                              );
+                            },
+                          ),
                         ),
                       ],
                     ],

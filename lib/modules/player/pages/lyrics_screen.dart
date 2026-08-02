@@ -30,7 +30,8 @@ class _LyricsScreenState extends State<LyricsScreen> {
 
   StreamSubscription<Duration>? _positionSubscription;
   List<LyricLine> _syncedLyrics = [];
-  int _currentActiveLyricIndex = 0;
+  // -1 means "no line active yet" — avoids highlighting line 0 prematurely.
+  int _currentActiveLyricIndex = -1;
 
   @override
   void initState() {
@@ -45,6 +46,9 @@ class _LyricsScreenState extends State<LyricsScreen> {
       album: widget.song.album,
       duration: Duration(milliseconds: widget.song.duration ?? 0),
     ).then((result) {
+      // Guard against the widget being disposed while this future was in flight.
+      if (!mounted) return result;
+
       // If we have synced lyrics, store them and listen to playback position
       if (result != null && result.hasSynced) {
         _syncedLyrics = result.synced!;
@@ -58,7 +62,8 @@ class _LyricsScreenState extends State<LyricsScreen> {
     if (widget.positionStream == null) return;
 
     _positionSubscription = widget.positionStream!.listen((position) {
-      if (_syncedLyrics.isEmpty) return;
+      // Guard: don't touch state after dispose.
+      if (!mounted || _syncedLyrics.isEmpty) return;
 
       int newIndex = -1;
       for (int i = 0; i < _syncedLyrics.length; i++) {

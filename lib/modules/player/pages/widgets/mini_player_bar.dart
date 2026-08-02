@@ -76,7 +76,7 @@ class _MiniPlayerCard extends StatelessWidget {
   void _openPlayerScreen() {
     rootNavigatorKey.currentState?.push(
       PageRouteBuilder(
-        settings: const RouteSettings(name: PlayerScreen.routeName),
+        settings:  RouteSettings(name: PlayerScreen.routeName),
         transitionDuration: const Duration(milliseconds: 400),
         reverseTransitionDuration: const Duration(milliseconds: 350),
         pageBuilder: (context, animation, secondaryAnimation) {

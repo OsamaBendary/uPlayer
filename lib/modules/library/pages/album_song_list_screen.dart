@@ -6,6 +6,7 @@ import 'package:u_player/core/models/library_group.dart';
 import 'package:u_player/core/services/player/playback_controller.dart';
 import 'package:u_player/core/theme/dynamic_gradient_background/dynamic_gradient_background.dart';
 import 'package:u_player/modules/library/widgets/library_detail_header.dart';
+import 'package:u_player/modules/library/widgets/swipe_back_detector.dart';
 import 'package:u_player/modules/player/pages/player_screen.dart';
 
 /// One screen, two uses: an album's tracklist, and an artist's "all songs"
@@ -84,15 +85,6 @@ class _AlbumSongListScreenState extends State<AlbumSongListScreen> {
     );
   }
 
-  // Swiping either direction here goes back to whatever screen pushed this
-  // one (album grid, or the artist screen) — not all the way to the player.
-  void _handleHorizontalSwipe(DragEndDetails details) {
-    final velocity = details.primaryVelocity ?? 0;
-    if (velocity.abs() > 250) {
-      Navigator.of(context).maybePop();
-    }
-  }
-
   Future<void> _playSong(SongModel song) async {
     // Queue exactly this screen's list (the album, or the artist's "all
     // songs") in order, starting at the tapped track — instead of jumping
@@ -119,9 +111,7 @@ class _AlbumSongListScreenState extends State<AlbumSongListScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      body: GestureDetector(
-        behavior: HitTestBehavior.translucent,
-        onHorizontalDragEnd: _handleHorizontalSwipe,
+      body: SwipeBackDetector(
         child: DynamicGradientBackground(
           songId: widget.artworkSongId,
           child: SafeArea(
