@@ -6,7 +6,7 @@ import 'package:on_audio_query/on_audio_query.dart';
 import 'package:u_player/core/services/player/playback_controller.dart';
 import 'package:u_player/core/services/player/seekbar_preference.dart';
 import 'package:u_player/core/theme/dynamic_gradient_background/dynamic_gradient_background.dart';
-import 'package:u_player/modules/library/pages/library_screen.dart';
+import 'package:u_player/modules/library/pages/library_nav_screen.dart';
 import 'package:u_player/modules/library/widgets/hero_flight_shuttles.dart';
 import 'package:u_player/modules/player/pages/lyrics_screen.dart';
 import 'package:u_player/modules/player/pages/widgets/artwork_swipe_detector.dart';
@@ -55,7 +55,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       navigator.pop();
     } else {
       navigator.pushReplacement(
-        MaterialPageRoute(builder: (_) => const LibraryScreen()),
+        MaterialPageRoute(builder: (_) => const LibraryNavScreen()),
       );
     }
   }
@@ -702,6 +702,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                     );
                                   },
                                 ),
+                                const SizedBox(height: 70),
                               ],
                             ),
                           ),

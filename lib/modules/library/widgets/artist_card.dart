@@ -38,6 +38,10 @@ class ArtistCard extends StatelessWidget {
             children: [
               Hero(
                 tag: artHeroTag,
+                flightShuttleBuilder: (flightContext, animation, flightDirection, fromHeroContext, toHeroContext) {
+                  final fromHero = fromHeroContext.widget as Hero;
+                  return ClipOval(child: fromHero.child);
+                },
                 child: ClipOval(
                   child: QueryArtworkWidget(
                     id: artist.representativeSong.id,

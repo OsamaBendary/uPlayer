@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:u_player/core/services/player/playback_controller.dart';
+import 'package:u_player/modules/library/pages/library_nav_screen.dart';
 import 'package:u_player/modules/player/pages/player_screen.dart';
 import 'package:u_player/modules/splash/splash_screen.dart';
 import 'package:just_audio_background/just_audio_background.dart';
@@ -75,16 +76,12 @@ void main() async {
     navigatorKey: rootNavigatorKey,
     navigatorObservers: [_PlayerVisibilityObserver()],
     home: const SplashScreen(),
-    // Applied above every route in the app, so the floating mini-player
-    // shows up regardless of which screen is on top — it's not a nav
-    // bar, so it doesn't need to be added per-screen. It hides itself
-    // automatically (see MiniPlayerBar) while the full PlayerScreen is
-    // already open.
     builder: (context, child) {
       return Stack(
         children: [
           if (child != null) child,
           const MiniPlayerBar(),
+          const FloatingNavBar(),
         ],
       );
     },

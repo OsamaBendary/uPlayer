@@ -66,6 +66,13 @@ class AlbumSongListScreen extends StatefulWidget {
 
 class _AlbumSongListScreenState extends State<AlbumSongListScreen> {
   late final Future<Uint8List?> _artworkFuture;
+  late final bool _isSingleAlbum = _computeIsSingleAlbum();
+
+  bool _computeIsSingleAlbum() {
+    if (widget.songs.isEmpty) return true;
+    final firstAlbumId = widget.songs.first.albumId;
+    return widget.songs.every((s) => s.albumId == firstAlbumId);
+  }
 
   @override
   void initState() {
@@ -93,8 +100,11 @@ class _AlbumSongListScreenState extends State<AlbumSongListScreen> {
     final startIndex = widget.songs.indexWhere((s) => s.id == song.id);
     await PlaybackController.instance.playQueue(widget.songs, startIndex: startIndex == -1 ? 0 : startIndex);
     if (!mounted) return;
+    // Prevent opening a second PlayerScreen
+    if (PlaybackController.instance.isPlayerScreenVisible.value) return;
     Navigator.of(context).push(
       MaterialPageRoute(
+        settings: const RouteSettings(name: PlayerScreen.routeName),
         // These are the same tags LibraryDetailHeader is using below, on
         // this exact screen. Handing them to PlayerScreen is what lets the
         // artwork/title fly from this header into the player on the way
@@ -131,12 +141,13 @@ class _AlbumSongListScreenState extends State<AlbumSongListScreen> {
                     builder: (context, artworkSnapshot) {
                       final sharedArtwork = artworkSnapshot.data;
                       return ListView.separated(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        padding: const EdgeInsets.only(left: 16, right: 16, top: 12, bottom: 160),
                         itemCount: widget.songs.length,
                         separatorBuilder: (_, __) => const SizedBox(height: 4),
                         itemBuilder: (context, index) => _SongTile(
                           song: widget.songs[index],
                           sharedArtwork: sharedArtwork,
+                          usePerSongArtwork: !_isSingleAlbum,
                           onTap: () => _playSong(widget.songs[index]),
                         ),
                       );
@@ -155,9 +166,10 @@ class _AlbumSongListScreenState extends State<AlbumSongListScreen> {
 class _SongTile extends StatelessWidget {
   final SongModel song;
   final Uint8List? sharedArtwork;
+  final bool usePerSongArtwork;
   final VoidCallback onTap;
 
-  const _SongTile({required this.song, required this.sharedArtwork, required this.onTap});
+  const _SongTile({required this.song, required this.sharedArtwork, this.usePerSongArtwork = false, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -187,7 +199,24 @@ class _SongTile extends StatelessWidget {
                 children: [
                   ClipRRect(
                     borderRadius: BorderRadius.circular(12),
-                    child: sharedArtwork != null
+                    child: usePerSongArtwork
+                        ? QueryArtworkWidget(
+                            id: song.id,
+                            type: ArtworkType.AUDIO,
+                            artworkWidth: 56,
+                            artworkHeight: 56,
+                            artworkFit: BoxFit.cover,
+                            quality: 85,
+                            format: ArtworkFormat.JPEG,
+                            size: 300,
+                            nullArtworkWidget: Container(
+                              width: 56,
+                              height: 56,
+                              color: const Color(0xFF1A1A1A),
+                              child: const Icon(Icons.music_note_rounded, color: Colors.white38),
+                            ),
+                          )
+                        : sharedArtwork != null
                         ? Image.memory(
                       sharedArtwork!,
                       width: 56,

@@ -2,7 +2,6 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 import 'package:u_player/core/models/library_group.dart';
-import 'package:u_player/core/services/access_to_files/access_service.dart';
 import 'package:u_player/core/services/player/playback_controller.dart';
 import 'package:u_player/modules/library/pages/album_song_list_screen.dart';
 import 'package:u_player/modules/library/pages/artist_screen.dart';
@@ -10,7 +9,6 @@ import 'package:u_player/modules/library/widgets/album_card.dart';
 import 'package:u_player/modules/library/widgets/app_gradient_background.dart';
 import 'package:u_player/modules/library/widgets/artist_card.dart';
 import 'package:u_player/modules/library/widgets/label_chip.dart';
-import 'package:u_player/modules/settings/pages/folder_picker_screen.dart';
 
 /// Pre-calculated positions for zero-lag scrub performance.
 class PrecomputedAlphabetData {
@@ -73,7 +71,6 @@ class LibraryScreen extends StatefulWidget {
 }
 
 class _LibraryScreenState extends State<LibraryScreen> {
-  final LocalAudioRepository _audioRepository = LocalAudioRepository();
   final PlaybackController _controller = PlaybackController.instance;
   final PageController _pageController = PageController();
   final TextEditingController _searchController = TextEditingController();
@@ -119,41 +116,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
     _cachedAlbums = groupSongsByAlbum(songs);
   }
 
-  Future<void> _openFolderPicker() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const FolderPickerScreen()),
-    );
-    await _controller.refreshLibrary();
-  }
-
-  Future<void> _openFavorites() async {
-    final favorites = await _audioRepository.fetchFavoriteSongs();
-    if (!mounted) return;
-
-    if (favorites.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No favorites yet — tap the heart on a song to add one.'),
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: Color(0xFF2A2A2A),
-        ),
-      );
-      return;
-    }
-
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => AlbumSongListScreen.fromSongs(
-          title: 'Favorites',
-          subtitle: '${favorites.length} song${favorites.length == 1 ? '' : 's'}',
-          songs: favorites,
-          artworkSongId: favorites.first.id,
-          heroArtTag: 'favorites-art',
-          heroTitleTag: 'favorites-title',
-        ),
-      ),
-    );
-  }
 
   void _onTabChanged(int index) {
     setState(() => _currentIndex = index);
@@ -208,27 +170,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   const SizedBox(height: 12),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Row(
-                      children: [
-                        const Expanded(
-                          child: Align(
-                            alignment: Alignment.centerLeft,
-                            child: LabelChip(
-                              'Library',
-                              style: TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                        ),
-                        _HeaderIconButton(
-                          icon: Icons.favorite_rounded,
-                          onTap: _openFavorites,
-                        ),
-                        const SizedBox(width: 8),
-                        _HeaderIconButton(
-                          icon: Icons.folder_rounded,
-                          onTap: _openFolderPicker,
-                        ),
-                      ],
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: LabelChip(
+                        'Library',
+                        style: TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -367,7 +314,7 @@ class _ArtistsTabViewState extends State<_ArtistsTabView> with AutomaticKeepAliv
               ),
             ),
             SliverPadding(
-              padding: const EdgeInsets.only(left: 16, right: 36, bottom: 8),
+              padding: const EdgeInsets.only(left: 16, right: 36, bottom: 160),
               sliver: SliverList(
                 delegate: SliverChildBuilderDelegate(
                       (context, index) {
@@ -517,7 +464,7 @@ class _AlbumsTabViewState extends State<_AlbumsTabView> with AutomaticKeepAliveC
                   ),
                 ),
                 SliverPadding(
-                  padding: const EdgeInsets.only(left: horizontalPadding, right: 36, bottom: 8),
+                  padding: const EdgeInsets.only(left: horizontalPadding, right: 36, bottom: 160),
                   sliver: SliverGrid(
                     gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                       crossAxisCount: crossAxisCount,
@@ -720,28 +667,6 @@ class _AllSongsBar extends StatelessWidget {
   }
 }
 
-class _HeaderIconButton extends StatelessWidget {
-  final IconData icon;
-  final VoidCallback onTap;
-
-  const _HeaderIconButton({required this.icon, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.black.withValues(alpha: 0.2),
-      borderRadius: BorderRadius.circular(14),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(8),
-          child: Icon(icon, color: Colors.white70, size: 20),
-        ),
-      ),
-    );
-  }
-}
 
 class _SortToggle extends StatelessWidget {
   final int currentIndex;

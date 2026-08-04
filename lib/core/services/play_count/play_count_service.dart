@@ -46,4 +46,9 @@ class PlayCountService {
     await _save(counts);
     return next;
   }
+
+  Future<void> clearAll() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_key);
+  }
 }

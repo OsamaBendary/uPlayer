@@ -37,21 +37,22 @@ class MiniPlayerBar extends StatelessWidget {
                         opacity: visible ? 1.0 : 0.0,
                         duration: const Duration(milliseconds: 280),
                         curve: Curves.easeOut,
-                        child: SafeArea(
-                          minimum: const EdgeInsets.only(bottom: 12),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            child: song == null
-                                ? const SizedBox.shrink()
-                                : GestureDetector(
-                              behavior: HitTestBehavior.translucent,
-                              onVerticalDragEnd: (details) {
-                                if ((details.primaryVelocity ?? 0) > 200) {
-                                  controller.isMiniPlayerDismissed.value = true;
-                                }
-                              },
-                              child: _MiniPlayerCard(song: song, controller: controller),
-                            ),
+                        child: Padding(
+                          padding: EdgeInsets.only(
+                            bottom: MediaQuery.of(context).padding.bottom + 80,
+                            left: 16,
+                            right: 16,
+                          ),
+                          child: song == null
+                              ? const SizedBox.shrink()
+                              : GestureDetector(
+                            behavior: HitTestBehavior.translucent,
+                            onVerticalDragEnd: (details) {
+                              if ((details.primaryVelocity ?? 0) > 200) {
+                                controller.isMiniPlayerDismissed.value = true;
+                              }
+                            },
+                            child: _MiniPlayerCard(song: song, controller: controller),
                           ),
                         ),
                       ),
@@ -74,6 +75,9 @@ class _MiniPlayerCard extends StatelessWidget {
   const _MiniPlayerCard({required this.song, required this.controller});
 
   void _openPlayerScreen() {
+    // Prevent opening multiple instances of PlayerScreen
+    if (PlaybackController.instance.isPlayerScreenVisible.value) return;
+    
     rootNavigatorKey.currentState?.push(
       PageRouteBuilder(
         settings:  RouteSettings(name: PlayerScreen.routeName),

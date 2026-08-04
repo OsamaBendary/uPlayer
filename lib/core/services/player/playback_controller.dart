@@ -47,6 +47,8 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
   LoopMode loopMode = LoopMode.off;
   Timer? _sleepTimer;
   Duration? sleepTimerDuration;
+  int? _trackedSongId;
+  bool _hasCountedCurrentPlayback = false;
 
   Future<void>? _initFuture;
   bool _listenersAttached = false;
@@ -98,8 +100,9 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
       audioPlayer.currentIndexStream.listen((index) {
         if (index != null && index != currentIndex && index < queue.length) {
           currentIndex = index;
+          _trackedSongId = null;
+          _hasCountedCurrentPlayback = false;
           _loadWaveformFor(queue[index]);
-          _registerPlay(queue[index].id);
           _persistPlaybackState();
           notifyListeners();
         }
@@ -110,6 +113,30 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
       audioPlayer.playerStateStream.listen((state) {
         if (!state.playing) {
           _persistPlaybackState();
+        }
+      });
+
+      audioPlayer.positionStream.listen((position) {
+        final song = currentSong;
+        if (song == null) return;
+
+        if (_trackedSongId != song.id) {
+          _trackedSongId = song.id;
+          _hasCountedCurrentPlayback = false;
+        }
+
+        if (_hasCountedCurrentPlayback && position.inSeconds < 2) {
+          _hasCountedCurrentPlayback = false;
+        }
+
+        if (_hasCountedCurrentPlayback) return;
+
+        final totalMs = audioPlayer.duration?.inMilliseconds ?? song.duration ?? 0;
+        if (totalMs <= 0) return;
+
+        if (position.inMilliseconds >= (totalMs ~/ 2)) {
+          _hasCountedCurrentPlayback = true;
+          _registerPlay(song.id);
         }
       });
     }
@@ -271,7 +298,8 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
 
     await audioPlayer.play();
     notifyListeners();
-    _registerPlay(queue[clampedStart].id);
+    _trackedSongId = null;
+    _hasCountedCurrentPlayback = false;
     _persistPlaybackState();
   }
 
@@ -296,6 +324,12 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
     final count = await _playCountService.getPlayCount(songId);
     playCounts[songId] = count;
     return count;
+  }
+
+  Future<void> clearPlayCounts() async {
+    await _playCountService.clearAll();
+    playCounts.clear();
+    notifyListeners();
   }
 
   // --- Shuffle ---
