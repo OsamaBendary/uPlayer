@@ -116,43 +116,52 @@ class _MiniPlayerCard extends StatelessWidget {
     final navigatorContext = rootNavigatorKey.currentContext;
     if (navigatorContext == null) return;
 
-    showModalBottomSheet<void>(
+    showDialog<void>(
       context: navigatorContext,
-      backgroundColor: const Color(0xFF1A1A1A),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (sheetContext) {
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 110),
-          child: SafeArea(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const SizedBox(height: 8),
-                ValueListenableBuilder<bool>(
-                  valueListenable: useWaveformSeekbar,
-                  builder: (context, isWaveform, _) {
-                    return ListTile(
-                      leading: Icon(
-                        isWaveform ? Icons.show_chart_rounded : Icons.linear_scale_rounded,
-                        color: Colors.white70,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF222222),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text('Seek Bar Style', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ValueListenableBuilder<bool>(
+                valueListenable: useWaveformSeekbar,
+                builder: (context, isWaveform, _) {
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ListTile(
+                        leading: const Icon(Icons.linear_scale_rounded, color: Colors.white70),
+                        title: const Text('Normal seek bar', style: TextStyle(color: Colors.white)),
+                        trailing: !isWaveform ? const Icon(Icons.check_rounded, color: Colors.white) : null,
+                        onTap: () {
+                          useWaveformSeekbar.value = false;
+                          Navigator.pop(dialogContext);
+                        },
                       ),
-                      title: Text(
-                        isWaveform ? 'Use normal seek bar' : 'Use waveform seek bar',
-                        style: const TextStyle(color: Colors.white),
+                      ListTile(
+                        leading: const Icon(Icons.show_chart_rounded, color: Colors.white70),
+                        title: const Text('Waveform seek bar', style: TextStyle(color: Colors.white)),
+                        trailing: isWaveform ? const Icon(Icons.check_rounded, color: Colors.white) : null,
+                        onTap: () {
+                          useWaveformSeekbar.value = true;
+                          Navigator.pop(dialogContext);
+                        },
                       ),
-                      onTap: () {
-                        useWaveformSeekbar.value = !useWaveformSeekbar.value;
-                        Navigator.pop(sheetContext);
-                      },
-                    );
-                  },
-                ),
-                const SizedBox(height: 8),
-              ],
-            ),
+                    ],
+                  );
+                },
+              ),
+            ],
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Close', style: TextStyle(color: Colors.white54)),
+            ),
+          ],
         );
       },
     );

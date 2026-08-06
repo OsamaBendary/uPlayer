@@ -45,6 +45,7 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
 
   bool isShuffleEnabled = false;
   LoopMode loopMode = LoopMode.off;
+  bool isPlayOnce = false;
   Timer? _sleepTimer;
   Duration? sleepTimerDuration;
   int? _trackedSongId;
@@ -99,6 +100,10 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
       _listenersAttached = true;
       audioPlayer.currentIndexStream.listen((index) {
         if (index != null && index != currentIndex && index < queue.length) {
+          if (isPlayOnce) {
+            audioPlayer.pause();
+            isPlayOnce = false;
+          }
           currentIndex = index;
           _trackedSongId = null;
           _hasCountedCurrentPlayback = false;
@@ -111,7 +116,11 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
       // Persist immediately whenever playback pauses/stops, so we don't
       // lose more than a few seconds of position if the app is killed.
       audioPlayer.playerStateStream.listen((state) {
-        if (!state.playing) {
+        if (isPlayOnce && state.processingState == ProcessingState.completed) {
+          audioPlayer.pause();
+          isPlayOnce = false;
+          notifyListeners();
+        } else if (!state.playing) {
           _persistPlaybackState();
         }
       });
@@ -300,6 +309,7 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
     _trackedSongId = null;
     _hasCountedCurrentPlayback = false;
+    isPlayOnce = false;
     _persistPlaybackState();
   }
 
@@ -383,18 +393,28 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> repeatOff() async {
     await audioPlayer.setLoopMode(LoopMode.off);
     loopMode = LoopMode.off;
+    isPlayOnce = false;
+    notifyListeners();
+  }
+
+  Future<void> playOnce() async {
+    await audioPlayer.setLoopMode(LoopMode.off);
+    loopMode = LoopMode.off;
+    isPlayOnce = true;
     notifyListeners();
   }
 
   Future<void> repeatOneSong() async {
     await audioPlayer.setLoopMode(LoopMode.one);
     loopMode = LoopMode.one;
+    isPlayOnce = false;
     notifyListeners();
   }
 
   Future<void> repeatThisList() async {
     await audioPlayer.setLoopMode(LoopMode.all);
     loopMode = LoopMode.all;
+    isPlayOnce = false;
     notifyListeners();
   }
 
@@ -402,6 +422,7 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
     await _rebuildQueueToWholeLibraryPreservingPlayback();
     await audioPlayer.setLoopMode(LoopMode.all);
     loopMode = LoopMode.all;
+    isPlayOnce = false;
     notifyListeners();
   }
 
@@ -494,7 +515,7 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
 
     final waveformController = PlayerController();
     try {
-      const samplesPerSecond = 4;
+      const samplesPerSecond = 64;
       final sampleCount = ((durationMs / 1000) * samplesPerSecond).round().clamp(50, 4000);
 
       debugPrint('WAVEFORM START: "${song.title}" samples=$sampleCount');

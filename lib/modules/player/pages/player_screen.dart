@@ -72,91 +72,71 @@ class _PlayerScreenState extends State<PlayerScreen> {
       Duration(minutes: 60),
     ];
 
-    await showModalBottomSheet<void>(
+    await showDialog<void>(
       context: context,
-      backgroundColor: const Color(0xFF1A1A1A),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (sheetContext) {
-        return SafeArea(
-          child: Column(
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF222222),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text('Sleep Timer', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+          content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Padding(
-                padding: EdgeInsets.fromLTRB(20, 20, 20, 8),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    'Sleep timer',
-                    style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ),
               for (final preset in presets)
                 ListTile(
+                  leading: const Icon(Icons.timer_outlined, color: Colors.white70),
                   title: Text(
                     '${preset.inMinutes} minutes',
                     style: const TextStyle(color: Colors.white),
                   ),
                   onTap: () {
-                    Navigator.pop(sheetContext);
+                    Navigator.pop(dialogContext);
                     _controller.startSleepTimer(preset);
                   },
                 ),
               if (_controller.hasSleepTimer)
                 ListTile(
+                  leading: const Icon(Icons.timer_off_outlined, color: Colors.redAccent),
                   title: const Text(
                     'Turn off timer',
                     style: TextStyle(color: Colors.redAccent),
                   ),
                   onTap: () {
-                    Navigator.pop(sheetContext);
+                    Navigator.pop(dialogContext);
                     _controller.cancelSleepTimer();
                   },
                 ),
-              const SizedBox(height: 8),
             ],
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+            ),
+          ],
         );
       },
     );
   }
 
   Future<void> _handleShuffleTap() async {
-    if (_controller.isShuffleEnabled) {
-      await _controller.turnOffShuffle();
-      return;
-    }
-
     final bool wholeLibraryAvailable = !_controller.queueIsWholeLibrary;
 
-    await showModalBottomSheet<void>(
+    await showDialog<void>(
       context: context,
-      backgroundColor: const Color(0xFF1A1A1A),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (sheetContext) {
-        return SafeArea(
-          child: Column(
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF222222),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text('Shuffle', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+          content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Padding(
-                padding: EdgeInsets.fromLTRB(20, 20, 20, 8),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    'Shuffle',
-                    style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ),
               ListTile(
                 leading: const Icon(Icons.queue_music_rounded, color: Colors.white70),
                 title: const Text('Shuffle this list', style: TextStyle(color: Colors.white)),
                 onTap: () {
-                  Navigator.pop(sheetContext);
+                  Navigator.pop(dialogContext);
                   _controller.shuffleThisList();
                 },
               ),
@@ -164,96 +144,116 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 leading: const Icon(Icons.library_music_rounded, color: Colors.white70),
                 title: const Text('Shuffle all songs on device', style: TextStyle(color: Colors.white)),
                 onTap: () {
-                  Navigator.pop(sheetContext);
+                  Navigator.pop(dialogContext);
                   _controller.shuffleAllSongs();
                 },
               ),
+              if (_controller.isShuffleEnabled)
+                ListTile(
+                  leading: const Icon(Icons.shuffle_on_outlined, color: Colors.redAccent),
+                  title: const Text('Turn off shuffle', style: TextStyle(color: Colors.redAccent)),
+                  onTap: () {
+                    Navigator.pop(dialogContext);
+                    _controller.turnOffShuffle();
+                  },
+                ),
               if (!wholeLibraryAvailable)
                 const Padding(
-                  padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'You\'re already playing every song on the device.',
-                      style: TextStyle(color: Colors.white38, fontSize: 12),
-                    ),
+                  padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
+                  child: Text(
+                    'You\'re already playing every song on the device.',
+                    style: TextStyle(color: Colors.white38, fontSize: 12),
                   ),
                 ),
-              const SizedBox(height: 8),
             ],
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+            ),
+          ],
         );
       },
     );
   }
 
   Future<void> _handleRepeatTap() async {
-    if (_controller.loopMode == LoopMode.one) {
-      await _controller.repeatOff();
-      return;
-    }
-
-    await showModalBottomSheet<void>(
+    await showDialog<void>(
       context: context,
-      backgroundColor: const Color(0xFF1A1A1A),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (sheetContext) {
-        return SafeArea(
-          child: Column(
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF222222),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text('Repeat Mode', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+          content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Padding(
-                padding: EdgeInsets.fromLTRB(20, 20, 20, 8),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    'Repeat',
-                    style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ),
               ListTile(
                 leading: const Icon(Icons.queue_music_rounded, color: Colors.white70),
                 title: const Text('Repeat this list', style: TextStyle(color: Colors.white)),
                 subtitle: const Text(
-                  'Loops the album/artist/list you\'re currently playing',
+                  'Loops current album / playlist',
                   style: TextStyle(color: Colors.white38, fontSize: 12),
                 ),
+                trailing: (_controller.loopMode == LoopMode.all && !_controller.queueIsWholeLibrary && !_controller.isPlayOnce) ? const Icon(Icons.check_rounded, color: Colors.white) : null,
                 onTap: () {
-                  Navigator.pop(sheetContext);
+                  Navigator.pop(dialogContext);
                   _controller.repeatThisList();
                 },
               ),
               ListTile(
                 leading: const Icon(Icons.library_music_rounded, color: Colors.white70),
                 title: const Text('Repeat all songs on device', style: TextStyle(color: Colors.white)),
+                trailing: (_controller.loopMode == LoopMode.all && _controller.queueIsWholeLibrary && !_controller.isPlayOnce) ? const Icon(Icons.check_rounded, color: Colors.white) : null,
                 onTap: () {
-                  Navigator.pop(sheetContext);
+                  Navigator.pop(dialogContext);
                   _controller.repeatAllSongs();
                 },
               ),
               ListTile(
                 leading: const Icon(Icons.repeat_one_rounded, color: Colors.white70),
                 title: const Text('Repeat one song', style: TextStyle(color: Colors.white)),
+                subtitle: const Text(
+                  'Loops current song continuously',
+                  style: TextStyle(color: Colors.white38, fontSize: 12),
+                ),
+                trailing: (_controller.loopMode == LoopMode.one && !_controller.isPlayOnce) ? const Icon(Icons.check_rounded, color: Colors.white) : null,
                 onTap: () {
-                  Navigator.pop(sheetContext);
+                  Navigator.pop(dialogContext);
                   _controller.repeatOneSong();
                 },
               ),
-              if (_controller.loopMode != LoopMode.off)
+              ListTile(
+                leading: const Icon(Icons.looks_one_rounded, color: Colors.amberAccent),
+                title: const Text('Play once (this song only)', style: TextStyle(color: Colors.white)),
+                subtitle: const Text(
+                  'Stops playback after this song finishes',
+                  style: TextStyle(color: Colors.white38, fontSize: 12),
+                ),
+                trailing: _controller.isPlayOnce ? const Icon(Icons.check_rounded, color: Colors.amberAccent) : null,
+                onTap: () {
+                  Navigator.pop(dialogContext);
+                  _controller.playOnce();
+                },
+              ),
+              if (_controller.loopMode != LoopMode.off || _controller.isPlayOnce)
                 ListTile(
                   leading: const Icon(Icons.close_rounded, color: Colors.redAccent),
                   title: const Text('Turn off repeat', style: TextStyle(color: Colors.redAccent)),
                   onTap: () {
-                    Navigator.pop(sheetContext);
+                    Navigator.pop(dialogContext);
                     _controller.repeatOff();
                   },
                 ),
-              const SizedBox(height: 8),
             ],
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+            ),
+          ],
         );
       },
     );
@@ -598,7 +598,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                             children: [
                                               SvgPicture.asset(
                                                 "assets/icons/media-player-music-player-svgrepo-com.svg",
-                                                color: _controller.loopMode == LoopMode.off ? Colors.grey : Colors.white,
+                                                color: (_controller.loopMode == LoopMode.off && !_controller.isPlayOnce)
+                                                    ? Colors.grey
+                                                    : (_controller.isPlayOnce ? Colors.amberAccent : Colors.white),
                                               ),
                                               if (_controller.loopMode == LoopMode.one)
                                                 Positioned(
@@ -617,6 +619,23 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                                         fontSize: 9,
                                                         fontWeight: FontWeight.bold,
                                                       ),
+                                                    ),
+                                                  ),
+                                                ),
+                                              if (_controller.isPlayOnce)
+                                                Positioned(
+                                                  right: -2,
+                                                  top: -2,
+                                                  child: Container(
+                                                    padding: const EdgeInsets.all(2),
+                                                    decoration: const BoxDecoration(
+                                                      color: Colors.amberAccent,
+                                                      shape: BoxShape.circle,
+                                                    ),
+                                                    child: const Icon(
+                                                      Icons.looks_one_rounded,
+                                                      size: 10,
+                                                      color: Colors.black,
                                                     ),
                                                   ),
                                                 ),

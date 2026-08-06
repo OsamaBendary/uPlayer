@@ -160,21 +160,20 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
   }
 
   Future<void> _showPlaylistOptions(PlaylistModel playlist) async {
-    showModalBottomSheet(
+    showDialog(
       context: context,
-      backgroundColor: const Color(0xFF1A1A1A),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => SafeArea(
-        child: Column(
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: const Color(0xFF222222),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(playlist.name, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+        content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
               leading: const Icon(Icons.edit, color: Colors.white),
               title: const Text('Rename', style: TextStyle(color: Colors.white)),
               onTap: () {
-                Navigator.pop(context);
+                Navigator.pop(dialogContext);
                 _renamePlaylist(playlist);
               },
             ),
@@ -182,13 +181,19 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
               leading: const Icon(Icons.delete, color: Colors.redAccent),
               title: const Text('Delete', style: TextStyle(color: Colors.redAccent)),
               onTap: () async {
-                Navigator.pop(context);
+                Navigator.pop(dialogContext);
                 await PlaylistService().deletePlaylist(playlist.id);
                 _loadPlaylists();
               },
             ),
           ],
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+          ),
+        ],
       ),
     );
   }

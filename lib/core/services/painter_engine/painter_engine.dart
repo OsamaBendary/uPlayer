@@ -59,27 +59,7 @@ class WaveformPainter extends CustomPainter {
       canvas.drawRRect(barRect, contentX <= splitX ? playedPaint : unplayedPaint);
     }
 
-    // Playhead — drawn in the same pass as the bars, at the fixed center
-    // of the viewport, sized to the waveform's own max possible height
-    // (size.height * 0.75, same ceiling every bar uses) so it's never
-    // shorter than a tall bar next to it, and reads as part of the
-    // waveform rather than a UI element floating on top of it.
-    final Paint indicatorPaint = Paint()
-      ..color = indicatorColor
-      ..style = PaintingStyle.fill;
-
-    final double indicatorHeight = size.height * 0.75;
-    final double indicatorX = size.width / 2;
-    final RRect indicatorRect = RRect.fromRectAndRadius(
-      Rect.fromLTWH(
-        indicatorX - (barWidth / 2),
-        (size.height - indicatorHeight) / 2,
-        barWidth,
-        indicatorHeight,
-      ),
-      const Radius.circular(3),
-    );
-    canvas.drawRRect(indicatorRect, indicatorPaint);
+    // No center indicator line — split between played and unplayed bars defines the playhead position
   }
 
   @override

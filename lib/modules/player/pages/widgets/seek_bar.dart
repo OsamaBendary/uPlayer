@@ -23,9 +23,9 @@ class WaveformSeekbar extends StatefulWidget {
 }
 
 class _WaveformSeekbarState extends State<WaveformSeekbar> {
-  static const double _barWidth = 8.0;
-  static const double _barGap = 2.0;
-  static const double _spacing = _barWidth + _barGap;
+  static const double _barWidth = 6.0;
+  static const double _barGap = 3.0;
+  static const double _spacing = _barWidth + _barGap; // 9.0px per bar
 
   late List<double> _amplitudes;
   int _barCount = 0;
@@ -49,19 +49,75 @@ class _WaveformSeekbarState extends State<WaveformSeekbar> {
   }
 
   void _rebuildAmplitudes() {
+    final targetBars = (widget.duration.inSeconds * 2).clamp(100, 250);
+
     if (widget.customAmplitudes != null && widget.customAmplitudes!.isNotEmpty) {
-      _amplitudes = widget.customAmplitudes!;
+      _amplitudes = _processRawAmplitudes(widget.customAmplitudes!, targetBars);
       _barCount = _amplitudes.length;
       return;
     }
-    _barCount = (widget.duration.inMilliseconds / 250).round().clamp(40, 2000);
+
+    _barCount = targetBars;
     _amplitudes = _generatePlaceholderWaveform(_barCount);
+  }
+
+  List<double> _processRawAmplitudes(List<double> raw, int targetBars) {
+    if (raw.isEmpty) return [];
+    
+    // Find absolute values
+    final absRaw = raw.map((e) => e.abs()).toList();
+
+    if (absRaw.length <= targetBars) {
+      return _normalize(absRaw);
+    }
+
+    final double blockSize = absRaw.length / targetBars;
+    final List<double> result = [];
+
+    for (int i = 0; i < targetBars; i++) {
+      final int start = (i * blockSize).floor();
+      final int end = ((i + 1) * blockSize).ceil().clamp(0, absRaw.length);
+
+      double sumSquare = 0;
+      double maxPeak = 0;
+      int count = 0;
+
+      for (int j = start; j < end; j++) {
+        final double val = absRaw[j];
+        sumSquare += val * val;
+        if (val > maxPeak) maxPeak = val;
+        count++;
+      }
+
+      if (count == 0) {
+        result.add(0.15);
+        continue;
+      }
+
+      final double rms = sqrt(sumSquare / count);
+      // Combine 70% RMS (perceptual loudness) + 30% Peak (drum/transient punch)
+      final double volume = (rms * 0.7) + (maxPeak * 0.3);
+      result.add(volume);
+    }
+
+    return _normalize(result);
+  }
+
+  List<double> _normalize(List<double> list) {
+    if (list.isEmpty) return list;
+    double maxVal = list.reduce(max);
+    if (maxVal <= 0.01) maxVal = 1.0;
+
+    return list.map((val) {
+      final double normalized = val / maxVal;
+      return normalized.clamp(0.15, 1.0);
+    }).toList();
   }
 
   List<double> _generatePlaceholderWaveform(int barCount) {
     final Random random = Random(42);
     return List.generate(barCount, (index) {
-      double sinValue = sin(index * 0.2).abs();
+      double sinValue = sin(index * 0.15).abs();
       return (0.2 + (sinValue * 0.5) + (random.nextDouble() * 0.3)).clamp(0.15, 1.0);
     });
   }
@@ -88,18 +144,29 @@ class _WaveformSeekbarState extends State<WaveformSeekbar> {
 
   @override
   Widget build(BuildContext context) {
-    final double contentWidth = _barCount * _spacing;
-
     return LayoutBuilder(
       builder: (context, constraints) {
         final double viewportWidth = constraints.maxWidth;
+        final double contentWidth = _barCount * _spacing;
         final double progress = _currentProgress;
         final double translateX = viewportWidth / 2 - contentWidth * progress;
 
-        void seekToLocalX(double localX) {
-          if (contentWidth == 0) return;
-          final double contentX = localX - translateX;
-          final double newProgress = (contentX / contentWidth).clamp(0.0, 1.0);
+        // Effective scrub width: swiping full viewport width = 80% of total song duration
+        final double dragSensitivityWidth = viewportWidth * 1.25;
+
+        void handleTapDown(Offset localPosition) {
+          if (widget.duration.inMilliseconds == 0) return;
+          // Offset from center playhead (-0.5 to +0.5 of viewport)
+          final double offsetFromCenter = localPosition.dx - (viewportWidth / 2);
+          // Scale tap offset relative to viewport width (tapping near edge jumps ~20-25%)
+          final double deltaProgress = offsetFromCenter / (viewportWidth * 1.5);
+          final double newProgress = (_currentProgress + deltaProgress).clamp(0.0, 1.0);
+
+          setState(() {
+            _isDragging = true;
+            _scrubProgress = newProgress;
+          });
+
           widget.onSeek(
             Duration(milliseconds: (widget.duration.inMilliseconds * newProgress).round()),
           );
@@ -107,7 +174,7 @@ class _WaveformSeekbarState extends State<WaveformSeekbar> {
 
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTapDown: (details) => seekToLocalX(details.localPosition.dx),
+          onTapDown: (details) => handleTapDown(details.localPosition),
           onHorizontalDragStart: (details) {
             setState(() {
               _isDragging = true;
@@ -115,10 +182,11 @@ class _WaveformSeekbarState extends State<WaveformSeekbar> {
             });
           },
           onHorizontalDragUpdate: (details) {
-            if (contentWidth == 0) return;
-            final double deltaProgress = details.delta.dx / contentWidth;
+            if (dragSensitivityWidth == 0) return;
+            // Dragging left (negative dx) -> advance forward. Dragging right -> rewind back.
+            final double deltaProgress = -details.delta.dx / dragSensitivityWidth;
             setState(() {
-              _scrubProgress = (_scrubProgress - deltaProgress).clamp(0.0, 1.0);
+              _scrubProgress = (_scrubProgress + deltaProgress).clamp(0.0, 1.0);
             });
           },
           onHorizontalDragEnd: (details) {
@@ -142,23 +210,24 @@ class _WaveformSeekbarState extends State<WaveformSeekbar> {
                         amplitudes: _amplitudes,
                         progress: progress,
                         translateX: translateX,
-                        playedColor: Colors.grey.shade600,
+                        playedColor: Colors.white.withValues(alpha: 0.35),
                         unplayedColor: Colors.white,
-                        indicatorColor: Colors.black,
                         barWidth: _barWidth,
                         spacing: _spacing,
                       ),
                     ),
                   ),
                 ),
+                // Time position overlay labels
                 Positioned(
-                  left: 4,
+                  left: 12,
                   bottom: 8,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.85),
-                      borderRadius: BorderRadius.circular(4),
+                      color: Colors.black.withValues(alpha: 0.75),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.white12, width: 0.5),
                     ),
                     child: Text(
                       _formatDuration(_displayedPosition),
@@ -167,17 +236,18 @@ class _WaveformSeekbarState extends State<WaveformSeekbar> {
                   ),
                 ),
                 Positioned(
-                  right: 4,
+                  right: 12,
                   bottom: 8,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.85),
-                      borderRadius: BorderRadius.circular(4),
+                      color: Colors.black.withValues(alpha: 0.75),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.white12, width: 0.5),
                     ),
                     child: Text(
                       _formatDuration(widget.duration),
-                      style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                      style: const TextStyle(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.bold),
                     ),
                   ),
                 ),
