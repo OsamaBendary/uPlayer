@@ -1,5 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:u_player/core/services/update/github_update_service.dart';
 import 'package:u_player/main.dart';
 import 'package:u_player/modules/library/pages/library_screen.dart';
 import 'package:u_player/modules/library/pages/playlists_screen.dart';
@@ -28,6 +29,9 @@ class _LibraryNavScreenState extends State<LibraryNavScreen> {
   void initState() {
     super.initState();
     isNavScreenVisible.value = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      GitHubUpdateService.checkForUpdates(context, silentIfLatest: true);
+    });
   }
 
   @override

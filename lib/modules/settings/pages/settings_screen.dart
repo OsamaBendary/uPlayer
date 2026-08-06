@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:u_player/core/services/player/playback_controller.dart';
+import 'package:u_player/core/services/update/github_update_service.dart';
 import 'package:u_player/modules/library/widgets/app_gradient_background.dart';
 import 'package:u_player/modules/library/widgets/label_chip.dart';
 import 'package:u_player/modules/settings/pages/folder_picker_screen.dart';
@@ -138,6 +139,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _loadFolderCount();
                 PlaybackController.instance.refreshLibrary();
               },
+            ),
+            _buildSettingRow(
+              icon: Icons.system_update_outlined,
+              title: 'Check for Updates',
+              subtitle: 'Check GitHub for latest release',
+              onTap: () => GitHubUpdateService.checkForUpdates(context, silentIfLatest: false),
             ),
             _buildSettingRow(
               icon: Icons.delete_outline,
