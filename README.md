@@ -1,4 +1,4 @@
-# u_player
+# u؛layer
 
 A high-performance, aesthetically crafted local music player built with Flutter. Designed for smooth, responsive user experiences, dynamic thematic backgrounds, and seamless audio playback.
 
