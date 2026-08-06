@@ -14,6 +14,8 @@ A high-performance, aesthetically crafted local music player built with Flutter.
   </a>
 </p>
 
+[![Download APK](https://img.shields.io/badge/Download_APK-v1.2.0-brightgreen?style=for-the-badge&logo=android&logoColor=white)](https://github.com/OsamaBendary/uPlayer/releases/latest)
+
 <img width="1920" height="1440" alt="596shots_so" src="https://github.com/user-attachments/assets/4bb33f95-5c39-4d0e-80ac-aa9769436301" />
 
 <img width="1920" height="1440" alt="765shots_so" src="https://github.com/user-attachments/assets/e840149e-644b-497f-80a0-56fb97bb3b32" />
