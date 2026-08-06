@@ -72,6 +72,10 @@ flutter_launcher_icons:
   android: true
   ios: true
   image_path: "assets/logo/Gemini_Generated_Image_p8ct2vp8ct2vp8ct.png"
+  adaptive_icon_background: "#000000"
+  adaptive_icon_foreground: "assets/logo/Gemini_Generated_Image_p8ct2vp8ct2vp8ct.png"
+  remove_alpha_ios: true
+  min_sdk_android: 21
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
