@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:u_player/core/services/painter_engine/painter_engine.dart';
 
 class WaveformSeekbar extends StatefulWidget {
@@ -8,6 +9,7 @@ class WaveformSeekbar extends StatefulWidget {
   final Function(Duration) onSeek;
   final List<double>? customAmplitudes;
   final bool isLoading;
+  final bool isPlaying;
 
   const WaveformSeekbar({
     super.key,
@@ -16,13 +18,14 @@ class WaveformSeekbar extends StatefulWidget {
     required this.onSeek,
     this.customAmplitudes,
     this.isLoading = false,
+    this.isPlaying = false,
   });
 
   @override
   State<WaveformSeekbar> createState() => _WaveformSeekbarState();
 }
 
-class _WaveformSeekbarState extends State<WaveformSeekbar> {
+class _WaveformSeekbarState extends State<WaveformSeekbar> with SingleTickerProviderStateMixin {
   static const double _barWidth = 6.0;
   static const double _barGap = 3.0;
   static const double _spacing = _barWidth + _barGap; // 9.0px per bar
@@ -33,10 +36,26 @@ class _WaveformSeekbarState extends State<WaveformSeekbar> {
   bool _isDragging = false;
   double _scrubProgress = 0.0;
 
+  // Smooth motion: positionStream only emits ~every 200ms, so without this
+  // the waveform would jump column-to-column. Between samples we track the
+  // measured playhead rate and let a ticker extrapolate continuously.
+  late final Ticker _ticker;
+  double _displayMs = 0;
+  int? _lastSampleMs;
+  DateTime? _lastSampleAt;
+  double _rate = 1.0;
+
   @override
   void initState() {
     super.initState();
+    _ticker = createTicker(_onTick);
     _rebuildAmplitudes();
+    _displayMs = widget.position.inMilliseconds.toDouble();
+    _lastSampleMs = widget.position.inMilliseconds;
+    _lastSampleAt = DateTime.now();
+    if (widget.isPlaying) {
+      _ticker.start();
+    }
   }
 
   @override
@@ -46,6 +65,62 @@ class _WaveformSeekbarState extends State<WaveformSeekbar> {
         widget.duration != oldWidget.duration) {
       _rebuildAmplitudes();
     }
+    if (widget.position != oldWidget.position) {
+      _recordSample(widget.position);
+    }
+    if (widget.isPlaying != oldWidget.isPlaying) {
+      if (widget.isPlaying) {
+        _lastSampleAt = DateTime.now();
+        _ticker.start();
+      } else {
+        _ticker.stop();
+        _displayMs = widget.position.inMilliseconds.toDouble();
+      }
+    }
+  }
+
+  void _recordSample(Duration position) {
+    final now = DateTime.now();
+    final ms = position.inMilliseconds.toDouble();
+    final lastMs = _lastSampleMs;
+    final lastAt = _lastSampleAt;
+    _lastSampleMs = position.inMilliseconds;
+    _lastSampleAt = now;
+    if (lastMs != null && lastAt != null) {
+      final deltaTime = now.difference(lastAt).inMilliseconds;
+      if (deltaTime > 0) {
+        final deltaMs = ms - lastMs.toDouble();
+        if (deltaMs.abs() > 2000) {
+          // A seek jump: follow it immediately and reset the rate baseline.
+          _rate = 1.0;
+          _displayMs = ms;
+        } else {
+          _rate = (deltaMs / deltaTime).clamp(0.0, 4.0);
+        }
+      }
+    }
+    if (!widget.isPlaying) {
+      _displayMs = ms;
+    }
+  }
+
+  void _onTick(Duration elapsed) {
+    final lastSampleMs = _lastSampleMs;
+    final lastAt = _lastSampleAt;
+    if (_isDragging || lastSampleMs == null || lastAt == null) return;
+    final durationMs = widget.duration.inMilliseconds;
+    if (durationMs == 0) return;
+    final elapsedMs = DateTime.now().difference(lastAt).inMilliseconds;
+    final target = (lastSampleMs.toDouble() + elapsedMs * _rate)
+        .clamp(0.0, durationMs.toDouble());
+    if ((target - _displayMs).abs() < 0.5) return;
+    setState(() => _displayMs = target);
+  }
+
+  @override
+  void dispose() {
+    _ticker.dispose();
+    super.dispose();
   }
 
   void _rebuildAmplitudes() {
@@ -132,12 +207,18 @@ class _WaveformSeekbarState extends State<WaveformSeekbar> {
   double get _currentProgress {
     if (_isDragging) return _scrubProgress;
     if (widget.duration.inMilliseconds == 0) return 0.0;
+    if (_ticker.isActive) {
+      return (_displayMs / widget.duration.inMilliseconds).clamp(0.0, 1.0);
+    }
     return (widget.position.inMilliseconds / widget.duration.inMilliseconds).clamp(0.0, 1.0);
   }
 
   Duration get _displayedPosition {
     if (_isDragging) {
       return Duration(milliseconds: (widget.duration.inMilliseconds * _scrubProgress).round());
+    }
+    if (_ticker.isActive) {
+      return Duration(milliseconds: _displayMs.round());
     }
     return widget.position;
   }

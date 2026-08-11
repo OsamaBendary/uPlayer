@@ -4,13 +4,14 @@ import 'package:image_picker/image_picker.dart';
 import 'package:on_audio_query/on_audio_query.dart' hide PlaylistModel;
 import 'package:u_player/core/models/playlist_model.dart';
 import 'package:u_player/core/services/player/playback_controller.dart';
+import 'package:u_player/core/services/player/tap_preference.dart';
 import 'package:u_player/core/services/playlist/playlist_service.dart';
 import 'package:u_player/modules/library/widgets/app_gradient_background.dart';
 import 'package:u_player/modules/library/widgets/swipe_back_detector.dart';
 import 'package:u_player/core/theme/dynamic_gradient_background/dynamic_gradient_background.dart';
 import 'package:u_player/core/models/library_group.dart';
 import 'package:u_player/modules/library/pages/playlist_song_picker_screen.dart';
-import 'package:u_player/main.dart'; // for rootNavigatorKey if needed
+import 'package:u_player/core/navigation/app_keys.dart';
 import 'package:u_player/modules/player/pages/player_screen.dart';
 
 class PlaylistDetailScreen extends StatefulWidget {
@@ -90,7 +91,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     
     PlaybackController.instance.playQueue(songsToPlay, startIndex: 0);
     
-    if (rootNavigatorKey.currentContext != null) {
+    if (rootNavigatorKey.currentContext != null && songTapOpensPlayer.value) {
       Navigator.push(
         rootNavigatorKey.currentContext!,
         MaterialPageRoute(
@@ -295,7 +296,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
               onTap: () {
                 if (PlaybackController.instance.isPlayerScreenVisible.value) return;
                 PlaybackController.instance.playQueue(_songs, startIndex: index - 1);
-                if (rootNavigatorKey.currentContext != null) {
+                if (rootNavigatorKey.currentContext != null && songTapOpensPlayer.value) {
                   Navigator.push(
                     rootNavigatorKey.currentContext!,
                     MaterialPageRoute(

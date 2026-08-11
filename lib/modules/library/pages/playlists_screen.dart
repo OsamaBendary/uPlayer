@@ -5,6 +5,7 @@ import 'package:on_audio_query/on_audio_query.dart' hide PlaylistModel;
 import 'package:u_player/core/models/playlist_model.dart';
 import 'package:u_player/core/services/access_to_files/access_service.dart';
 import 'package:u_player/core/services/playlist/playlist_service.dart';
+import 'package:u_player/core/utils/app_snackbar.dart';
 import 'package:u_player/modules/library/pages/album_song_list_screen.dart';
 import 'package:u_player/modules/library/widgets/app_gradient_background.dart';
 import 'package:u_player/modules/library/widgets/label_chip.dart';
@@ -39,13 +40,7 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
     final favorites = await _audioRepository.fetchFavoriteSongs();
     if (!mounted) return;
     if (favorites.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No liked songs yet — tap the heart on a song to add one.'),
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: Color(0xFF2A2A2A),
-        ),
-      );
+      AppSnackBar.show('No liked songs yet — tap the heart on a song to add one.', context: context);
       return;
     }
     await Navigator.of(context).push(

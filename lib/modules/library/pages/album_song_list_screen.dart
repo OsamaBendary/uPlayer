@@ -4,8 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 import 'package:u_player/core/models/library_group.dart';
 import 'package:u_player/core/services/player/playback_controller.dart';
+import 'package:u_player/core/services/player/tap_preference.dart';
 import 'package:u_player/core/theme/dynamic_gradient_background/dynamic_gradient_background.dart';
 import 'package:u_player/modules/library/widgets/library_detail_header.dart';
+import 'package:u_player/modules/library/widgets/smart_artwork_widget.dart';
+import 'package:u_player/modules/library/widgets/song_options_dialog.dart';
 import 'package:u_player/modules/library/widgets/swipe_back_detector.dart';
 import 'package:u_player/modules/player/pages/player_screen.dart';
 
@@ -102,6 +105,9 @@ class _AlbumSongListScreenState extends State<AlbumSongListScreen> {
     if (!mounted) return;
     // Prevent opening a second PlayerScreen
     if (PlaybackController.instance.isPlayerScreenVisible.value) return;
+    // When "open player on tap" is off, playback starts in the mini player
+    // and the mini player is the way to open the full player screen.
+    if (!songTapOpensPlayer.value) return;
     Navigator.of(context).push(
       MaterialPageRoute(
         settings: const RouteSettings(name: PlayerScreen.routeName),
@@ -186,6 +192,7 @@ class _SongTile extends StatelessWidget {
           child: InkWell(
             borderRadius: BorderRadius.circular(14),
             onTap: onTap,
+            onLongPress: () => SongOptionsDialog.show(context, song),
             child: Container(
               padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
               decoration: BoxDecoration(
@@ -200,35 +207,23 @@ class _SongTile extends StatelessWidget {
                   ClipRRect(
                     borderRadius: BorderRadius.circular(12),
                     child: usePerSongArtwork
-                        ? QueryArtworkWidget(
-                            id: song.id,
-                            type: ArtworkType.AUDIO,
-                            artworkWidth: 56,
-                            artworkHeight: 56,
-                            artworkFit: BoxFit.cover,
-                            quality: 85,
-                            format: ArtworkFormat.JPEG,
-                            size: 300,
-                            nullArtworkWidget: Container(
-                              width: 56,
-                              height: 56,
-                              color: const Color(0xFF1A1A1A),
-                              child: const Icon(Icons.music_note_rounded, color: Colors.white38),
-                            ),
+                        ? SmartArtworkWidget(
+                            song: song,
+                            width: 56,
+                            height: 56,
                           )
                         : sharedArtwork != null
-                        ? Image.memory(
-                      sharedArtwork!,
-                      width: 56,
-                      height: 56,
-                      fit: BoxFit.cover,
-                    )
-                        : Container(
-                      width: 56,
-                      height: 56,
-                      color: const Color(0xFF1A1A1A),
-                      child: const Icon(Icons.music_note_rounded, color: Colors.white38),
-                    ),
+                            ? Image.memory(
+                                sharedArtwork!,
+                                width: 56,
+                                height: 56,
+                                fit: BoxFit.cover,
+                              )
+                            : SmartArtworkWidget(
+                                song: song,
+                                width: 56,
+                                height: 56,
+                              ),
                   ),
                   const SizedBox(width: 14),
                   Expanded(

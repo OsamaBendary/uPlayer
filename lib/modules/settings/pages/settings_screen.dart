@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:u_player/core/utils/app_snackbar.dart';
 import 'package:u_player/core/services/player/playback_controller.dart';
 import 'package:u_player/core/services/update/github_update_service.dart';
 import 'package:u_player/modules/library/widgets/app_gradient_background.dart';
 import 'package:u_player/modules/library/widgets/label_chip.dart';
+import 'package:u_player/modules/settings/pages/customization_screen.dart';
+import 'package:u_player/modules/settings/pages/download_folder_picker_screen.dart';
+import 'package:u_player/modules/settings/pages/extension_management_screen.dart';
 import 'package:u_player/modules/settings/pages/folder_picker_screen.dart';
 import 'package:u_player/core/services/folder_filter/folder_filter_service.dart';
 
@@ -52,9 +56,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (confirm == true) {
       await PlaybackController.instance.clearPlayCounts();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Play counts cleared')),
-        );
+        AppSnackBar.show('Play counts cleared', context: context);
       }
     }
   }
@@ -65,7 +67,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       builder: (context) => const AlertDialog(
         backgroundColor: Color(0xFF222222),
         title: Text('About uPlayer', style: TextStyle(color: Colors.white)),
-        content: Text('Version 1.0.0\nA beautiful music player for your local audio files.', style: TextStyle(color: Colors.white70)),
+        content: Text('Version 2.0.0\nA beautiful music player for your local audio files.', style: TextStyle(color: Colors.white70)),
       ),
     );
   }
@@ -118,46 +120,82 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     return AppGradientBackground(
       child: SafeArea(
-        child: Column(
-          children: [
-            const Padding(
-              padding: EdgeInsets.only(top: 24, bottom: 24),
-              child: LabelChip(
-                'Settings',
-                style: TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold),
+        child: SingleChildScrollView(
+          child: Column(
+            children: [
+              const Padding(
+                padding: EdgeInsets.only(top: 24, bottom: 24),
+                child: LabelChip(
+                  'Settings',
+                  style: TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold),
+                ),
               ),
-            ),
-            _buildSettingRow(
-              icon: Icons.folder_outlined,
-              title: 'Choose Folders',
-              subtitle: _folderCount > 0 ? '$_folderCount selected' : 'All folders',
-              onTap: () async {
-                await Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const FolderPickerScreen()),
-                );
-                _loadFolderCount();
-                PlaybackController.instance.refreshLibrary();
-              },
-            ),
-            _buildSettingRow(
-              icon: Icons.system_update_outlined,
-              title: 'Check for Updates',
-              subtitle: 'Check GitHub for latest release',
-              onTap: () => GitHubUpdateService.checkForUpdates(context, silentIfLatest: false),
-            ),
-            _buildSettingRow(
-              icon: Icons.delete_outline,
-              title: 'Clear Play Counts',
-              subtitle: 'Reset all stats to zero',
-              onTap: _clearPlayCounts,
-            ),
-            _buildSettingRow(
-              icon: Icons.info_outline,
-              title: 'About',
-              onTap: _showAbout,
-            ),
-          ],
+              _buildSettingRow(
+                icon: Icons.extension_outlined,
+                title: 'Extension Store & Providers',
+                subtitle: 'Manage repositories & download providers',
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const ExtensionManagementScreen()),
+                  );
+                },
+              ),
+              _buildSettingRow(
+                icon: Icons.folder_special_outlined,
+                title: 'Download Destination Folder',
+                subtitle: 'Assign target folder for downloaded music',
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const DownloadFolderPickerScreen()),
+                  );
+                },
+              ),
+              _buildSettingRow(
+                icon: Icons.folder_outlined,
+                title: 'Choose Scanned Folders',
+                subtitle: _folderCount > 0 ? '$_folderCount selected' : 'All folders',
+                onTap: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const FolderPickerScreen()),
+                  );
+                  _loadFolderCount();
+                  PlaybackController.instance.refreshLibrary();
+                },
+              ),
+              _buildSettingRow(
+                icon: Icons.tune,
+                title: 'Customization',
+                subtitle: 'Song tap behavior & seek bar style',
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const CustomizationScreen()),
+                  );
+                },
+              ),
+              _buildSettingRow(
+                icon: Icons.system_update_outlined,
+                title: 'Check for Updates',
+                subtitle: 'Check GitHub for latest release',
+                onTap: () => GitHubUpdateService.checkForUpdates(context, silentIfLatest: false),
+              ),
+              _buildSettingRow(
+                icon: Icons.delete_outline,
+                title: 'Clear Play Counts',
+                subtitle: 'Reset all stats to zero',
+                onTap: _clearPlayCounts,
+              ),
+              _buildSettingRow(
+                icon: Icons.info_outline,
+                title: 'About',
+                onTap: _showAbout,
+              ),
+              const SizedBox(height: 120),
+            ],
+          ),
         ),
       ),
     );

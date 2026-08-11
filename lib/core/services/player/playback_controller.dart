@@ -66,101 +66,95 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> _init() async {
-    final loaded = await _audioRepository.fetchLocalSongs();
-    songs = loaded;
-    queue = List.from(loaded);
-    queueIsWholeLibrary = true;
+    try {
+      final loaded = await _audioRepository.fetchLocalSongs();
+      songs = loaded;
+      queue = List.from(loaded);
+      queueIsWholeLibrary = true;
 
-    if (loaded.isNotEmpty) {
-      var initialIndex = 0;
-      var initialPosition = Duration.zero;
+      if (loaded.isNotEmpty) {
+        var initialIndex = 0;
+        var initialPosition = Duration.zero;
 
-      final lastSongId = await _playbackStateService.getLastSongId();
-      if (lastSongId != null) {
-        final restoredIndex = queue.indexWhere((s) => s.id == lastSongId);
-        if (restoredIndex != -1) {
-          initialIndex = restoredIndex;
-          initialPosition = await _playbackStateService.getLastPosition();
+        final lastSongId = await _playbackStateService.getLastSongId();
+        if (lastSongId != null) {
+          final restoredIndex = queue.indexWhere((s) => s.id == lastSongId);
+          if (restoredIndex != -1) {
+            initialIndex = restoredIndex;
+            initialPosition = await _playbackStateService.getLastPosition();
+          }
         }
+
+        currentIndex = initialIndex;
+        await audioPlayer.setAudioSource(
+          await _createPlaylist(queue, initialIndex: initialIndex),
+          initialIndex: initialIndex,
+          initialPosition: initialPosition,
+        );
+        _loadWaveformFor(queue[currentIndex]);
       }
 
-      currentIndex = initialIndex;
-      await audioPlayer.setAudioSource(
-        await _createPlaylist(queue),
-        initialIndex: initialIndex,
-        initialPosition: initialPosition,
-      );
-      _loadWaveformFor(queue[currentIndex]);
-    }
+      if (!_listenersAttached) {
+        _listenersAttached = true;
+        audioPlayer.currentIndexStream.listen((index) {
+          if (index != null && index != currentIndex && index < queue.length) {
+            if (isPlayOnce) {
+              audioPlayer.pause();
+              isPlayOnce = false;
+            }
+            currentIndex = index;
+            _trackedSongId = null;
+            _hasCountedCurrentPlayback = false;
+            _loadWaveformFor(queue[index]);
+            _persistPlaybackState();
+            _resolveArtworkUri(queue[index]);
+            notifyListeners();
+          }
+        });
 
-    isLoading = false;
-    notifyListeners();
-
-    if (!_listenersAttached) {
-      _listenersAttached = true;
-      audioPlayer.currentIndexStream.listen((index) {
-        if (index != null && index != currentIndex && index < queue.length) {
-          if (isPlayOnce) {
+        audioPlayer.playerStateStream.listen((state) {
+          if (isPlayOnce && state.processingState == ProcessingState.completed) {
             audioPlayer.pause();
             isPlayOnce = false;
+            notifyListeners();
+          } else if (!state.playing) {
+            _persistPlaybackState();
           }
-          currentIndex = index;
-          _trackedSongId = null;
-          _hasCountedCurrentPlayback = false;
-          _loadWaveformFor(queue[index]);
-          _persistPlaybackState();
-          notifyListeners();
-        }
-      });
+        });
 
-      // Persist immediately whenever playback pauses/stops, so we don't
-      // lose more than a few seconds of position if the app is killed.
-      audioPlayer.playerStateStream.listen((state) {
-        if (isPlayOnce && state.processingState == ProcessingState.completed) {
-          audioPlayer.pause();
-          isPlayOnce = false;
-          notifyListeners();
-        } else if (!state.playing) {
-          _persistPlaybackState();
-        }
-      });
+        audioPlayer.positionStream.listen((position) {
+          final song = currentSong;
+          if (song == null) return;
 
-      audioPlayer.positionStream.listen((position) {
-        final song = currentSong;
-        if (song == null) return;
+          if (_trackedSongId != song.id) {
+            _trackedSongId = song.id;
+            _hasCountedCurrentPlayback = false;
+          }
 
-        if (_trackedSongId != song.id) {
-          _trackedSongId = song.id;
-          _hasCountedCurrentPlayback = false;
-        }
+          if (_hasCountedCurrentPlayback && position.inSeconds < 2) {
+            _hasCountedCurrentPlayback = false;
+          }
 
-        if (_hasCountedCurrentPlayback && position.inSeconds < 2) {
-          _hasCountedCurrentPlayback = false;
-        }
+          if (_hasCountedCurrentPlayback) return;
 
-        if (_hasCountedCurrentPlayback) return;
+          final totalMs = audioPlayer.duration?.inMilliseconds ?? song.duration ?? 0;
+          if (totalMs <= 0) return;
 
-        final totalMs = audioPlayer.duration?.inMilliseconds ?? song.duration ?? 0;
-        if (totalMs <= 0) return;
+          if (position.inMilliseconds >= (totalMs ~/ 2)) {
+            _hasCountedCurrentPlayback = true;
+            _registerPlay(song.id);
+          }
+        });
+      }
 
-        if (position.inMilliseconds >= (totalMs ~/ 2)) {
-          _hasCountedCurrentPlayback = true;
-          _registerPlay(song.id);
-        }
-      });
+      _startStateSaveTimer();
+      WidgetsBinding.instance.addObserver(this);
+    } catch (e) {
+      debugPrint('[PlaybackController] Initialization error: $e');
+    } finally {
+      isLoading = false;
+      notifyListeners();
     }
-
-    _startStateSaveTimer();
-
-    // The periodic timer only catches you every 5s, and only while the
-    // process is alive. Some Android OEMs (aggressive battery managers on
-    // Xiaomi/Huawei/OnePlus etc.) kill backgrounded processes the instant
-    // the app leaves the foreground, regardless of the foreground-service
-    // notification — no warning, no chance for a timer to fire again. This
-    // forces one last save the moment the app is backgrounded, which is
-    // most of what "resume where I left off after days" actually depends
-    // on in practice.
-    WidgetsBinding.instance.addObserver(this);
   }
 
   @override
@@ -174,29 +168,33 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> refreshLibrary() async {
-    final loaded = await _audioRepository.fetchLocalSongs();
-    songs = loaded;
+    try {
+      final loaded = await _audioRepository.fetchLocalSongs();
+      songs = loaded;
 
-    if (queueIsWholeLibrary) {
-      final playing = currentSong;
-      final position = audioPlayer.position;
+      if (queueIsWholeLibrary) {
+        final playing = currentSong;
+        final position = audioPlayer.position;
 
-      queue = List.from(loaded);
+        queue = List.from(loaded);
 
-      if (loaded.isEmpty) {
-        currentIndex = 0;
-      } else {
-        final newIndex = playing != null ? queue.indexWhere((s) => s.id == playing.id) : 0;
-        currentIndex = newIndex == -1 ? 0 : newIndex;
-        await audioPlayer.setAudioSource(
-          await _createPlaylist(queue),
-          initialIndex: currentIndex,
-          initialPosition: position,
-        );
+        if (loaded.isEmpty) {
+          currentIndex = 0;
+        } else {
+          final newIndex = playing != null ? queue.indexWhere((s) => s.id == playing.id) : 0;
+          currentIndex = newIndex == -1 ? 0 : newIndex;
+          await audioPlayer.setAudioSource(
+            await _createPlaylist(queue, initialIndex: currentIndex),
+            initialIndex: currentIndex,
+            initialPosition: position,
+          );
+        }
       }
+    } catch (e) {
+      debugPrint('[PlaybackController] refreshLibrary error: $e');
+    } finally {
+      notifyListeners();
     }
-
-    notifyListeners();
   }
 
   /// Resolves a stable local file:// URI for a song's album art, decoding
@@ -242,27 +240,21 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  Future<ConcatenatingAudioSource> _createPlaylist(List<SongModel> list) async {
-    // Resolve artwork in small batches rather than all at once — a couple
-    // hundred simultaneous platform-channel calls on a big library would
-    // stall startup; a couple hundred sequential ones would be slow. This
-    // splits the difference. Already-cached albums resolve instantly.
-    const batchSize = 8;
-    final artUris = List<String?>.filled(list.length, null);
-
-    for (var i = 0; i < list.length; i += batchSize) {
-      final end = (i + batchSize < list.length) ? i + batchSize : list.length;
-      final batchResults = await Future.wait(list.sublist(i, end).map(_resolveArtworkUri));
-      for (var j = 0; j < batchResults.length; j++) {
-        artUris[i + j] = batchResults[j];
-      }
+  Future<ConcatenatingAudioSource> _createPlaylist(List<SongModel> list, {int? initialIndex}) async {
+    // Only pre-resolve artwork for the initial track so startup is instant (< 50ms).
+    // Other tracks use cached artwork if available, or resolve lazily on playback.
+    String? initialArtUri;
+    if (initialIndex != null && initialIndex >= 0 && initialIndex < list.length) {
+      initialArtUri = await _resolveArtworkUri(list[initialIndex]);
     }
 
     return ConcatenatingAudioSource(
       useLazyPreparation: true,
       children: List.generate(list.length, (i) {
         final song = list[i];
-        final artUriString = artUris[i];
+        final artUriString = (i == initialIndex)
+            ? initialArtUri
+            : _artworkUriCache[song.albumId ?? song.id];
         return AudioSource.uri(
           Uri.file(song.data),
           tag: MediaItem(

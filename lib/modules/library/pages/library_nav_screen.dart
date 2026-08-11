@@ -1,7 +1,8 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:u_player/core/services/update/github_update_service.dart';
-import 'package:u_player/main.dart';
+import 'package:u_player/core/navigation/app_keys.dart';
+import 'package:u_player/modules/download/pages/download_screen.dart';
 import 'package:u_player/modules/library/pages/library_screen.dart';
 import 'package:u_player/modules/library/pages/playlists_screen.dart';
 import 'package:u_player/modules/library/pages/stats_screen.dart';
@@ -22,6 +23,7 @@ class _LibraryNavScreenState extends State<LibraryNavScreen> {
     LibraryScreen(),
     PlaylistsScreen(),
     StatsScreen(),
+    DownloadScreen(),
     SettingsScreen(),
   ];
 
@@ -61,6 +63,7 @@ class FloatingNavBar extends StatelessWidget {
     Icons.library_music_rounded,
     Icons.queue_music_rounded,
     Icons.bar_chart_rounded,
+    Icons.file_download_rounded,
     Icons.settings_rounded,
   ];
 

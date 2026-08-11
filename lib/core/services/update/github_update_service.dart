@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:u_player/core/utils/app_snackbar.dart';
 
 class GitHubUpdateService {
   static const String repoOwner = "OsamaBendary";
@@ -133,12 +134,6 @@ class GitHubUpdateService {
   }
 
   static void _showSnackBar(BuildContext context, String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: const Color(0xFF333333),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+    AppSnackBar.show(message, context: context);
   }
 }

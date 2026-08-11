@@ -30,6 +30,19 @@ android {
     }
 }
 
+repositories {
+    flatDir {
+        dirs("libs")
+    }
+}
+
+dependencies {
+    // Gomobile-built Go backend (android/app/libs/gobackend.aar). The libs
+    // directory may be empty — the Kotlin bridge resolves gobackend.Gobackend
+    // by reflection, so builds succeed without the AAR.
+    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar", "*.aar"))))
+}
+
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)

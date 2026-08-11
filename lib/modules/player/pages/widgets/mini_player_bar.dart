@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 import 'package:u_player/core/services/player/playback_controller.dart';
-import 'package:u_player/core/services/player/seekbar_preference.dart';
-import 'package:u_player/main.dart';
+import 'package:u_player/modules/library/widgets/smart_artwork_widget.dart';
+import 'package:u_player/core/navigation/app_keys.dart';
 import 'package:u_player/modules/player/pages/player_screen.dart';
 
 class MiniPlayerBar extends StatelessWidget {
@@ -112,61 +112,6 @@ class _MiniPlayerCard extends StatelessWidget {
     );
   }
 
-  void _showSeekbarMenu() {
-    final navigatorContext = rootNavigatorKey.currentContext;
-    if (navigatorContext == null) return;
-
-    showDialog<void>(
-      context: navigatorContext,
-      builder: (dialogContext) {
-        return AlertDialog(
-          backgroundColor: const Color(0xFF222222),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: const Text('Seek Bar Style', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ValueListenableBuilder<bool>(
-                valueListenable: useWaveformSeekbar,
-                builder: (context, isWaveform, _) {
-                  return Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      ListTile(
-                        leading: const Icon(Icons.linear_scale_rounded, color: Colors.white70),
-                        title: const Text('Normal seek bar', style: TextStyle(color: Colors.white)),
-                        trailing: !isWaveform ? const Icon(Icons.check_rounded, color: Colors.white) : null,
-                        onTap: () {
-                          useWaveformSeekbar.value = false;
-                          Navigator.pop(dialogContext);
-                        },
-                      ),
-                      ListTile(
-                        leading: const Icon(Icons.show_chart_rounded, color: Colors.white70),
-                        title: const Text('Waveform seek bar', style: TextStyle(color: Colors.white)),
-                        trailing: isWaveform ? const Icon(Icons.check_rounded, color: Colors.white) : null,
-                        onTap: () {
-                          useWaveformSeekbar.value = true;
-                          Navigator.pop(dialogContext);
-                        },
-                      ),
-                    ],
-                  );
-                },
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Close', style: TextStyle(color: Colors.white54)),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Material(
@@ -189,25 +134,11 @@ class _MiniPlayerCard extends StatelessWidget {
           ),
           child: Row(
             children: [
-              ClipRRect(
+              SmartArtworkWidget(
+                song: song,
+                width: 44,
+                height: 44,
                 borderRadius: BorderRadius.circular(14),
-                child: QueryArtworkWidget(
-                  id: song.id,
-                  type: ArtworkType.AUDIO,
-                  artworkWidth: 44,
-                  artworkHeight: 44,
-                  artworkFit: BoxFit.cover,
-                  artworkBorder: BorderRadius.circular(14),
-                  quality: 100,
-                  format: ArtworkFormat.PNG,
-                  size: 200,
-                  nullArtworkWidget: Container(
-                    width: 44,
-                    height: 44,
-                    color: const Color(0xFF2A2A2A),
-                    child: const Icon(Icons.music_note_rounded, color: Colors.white38, size: 20),
-                  ),
-                ),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -246,10 +177,6 @@ class _MiniPlayerCard extends StatelessWidget {
                     },
                   );
                 },
-              ),
-              IconButton(
-                icon: const Icon(Icons.menu_rounded, color: Colors.white70),
-                onPressed: _showSeekbarMenu,
               ),
             ],
           ),

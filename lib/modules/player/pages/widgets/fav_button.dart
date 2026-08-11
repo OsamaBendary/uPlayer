@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:u_player/core/services/favorites_service/favorites_service.dart';
+import 'package:u_player/core/utils/app_snackbar.dart';
 
 class FavoriteButton extends StatefulWidget {
   final int songId;
@@ -61,18 +62,13 @@ class _FavoriteButtonState extends State<FavoriteButton> {
 
     // 4. Quick visual feedback for the user
     if (mounted) {
-      ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            _isFav
-                ? 'Added "${widget.songTitle}" to Favorites'
-                : 'Removed "${widget.songTitle}" from Favorites',
-          ),
-          duration: const Duration(seconds: 1),
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: const Color(0xFF2A2A2A),
-        ),
+      AppSnackBar.show(
+        _isFav
+            ? 'Added "${widget.songTitle}" to Favorites'
+            : 'Removed "${widget.songTitle}" from Favorites',
+        context: context,
+        duration: const Duration(seconds: 1),
+        backgroundColor: const Color(0xFF2A2A2A),
       );
     }
   }
