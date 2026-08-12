@@ -60,7 +60,7 @@ A high-performance, aesthetically crafted local music player built with Flutter.
 
 ## Credits
 
-* Huge thanks to **[SpotiFLAC](https://github.com/spotiflac/SpotiFLAC)** and **[SpotiFLAC Mobile](https://github.com/spotiflac/SpotiFLAC-Mobile)** — the reference implementations that the download engine, provider-extension system, and zero-login session verification are modeled after. uPlayer builds on their architecture for streaming-provider downloads.
+* Huge thanks to **[SpotiFLAC]([https://github.com/spotiflac/SpotiFLAC](https://github.com/spotbye/spotiflac))** and **[SpotiFLAC Mobile]([https://github.com/spotiflac/SpotiFLAC-Mobile](https://github.com/spotiflacapp/SpotiFLAC-Mobile))** — the reference implementations that the download engine, provider-extension system, and zero-login session verification are modeled after. uPlayer builds on their architecture for streaming-provider downloads.
 * Icons via [SVG Repo](https://www.svgrepo.com/).
 
 ---
