@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:u_player/core/services/extension/extension_service.dart';
 import 'package:u_player/core/utils/app_snackbar.dart';
 import 'package:u_player/modules/library/widgets/app_gradient_background.dart';
@@ -32,6 +33,19 @@ class _ExtensionManagementScreenState extends State<ExtensionManagementScreen> {
   void dispose() {
     _urlController.dispose();
     super.dispose();
+  }
+
+  static const String _officialRepoUrl =
+      'https://github.com/spotiflacapp/SpotiFLAC-Extension';
+
+  Future<void> _openOfficialRepo() async {
+    final launched = await launchUrl(
+      Uri.parse(_officialRepoUrl),
+      mode: LaunchMode.externalApplication,
+    );
+    if (!launched && mounted) {
+      AppSnackBar.show('Could not open the repository.', context: context);
+    }
   }
 
   Future<void> _addRepoUrl() async {
@@ -111,6 +125,11 @@ class _ExtensionManagementScreenState extends State<ExtensionManagementScreen> {
           ),
           title: const LabelChip('Extension Store & Providers'),
           actions: [
+            IconButton(
+              icon: const Icon(Icons.link_rounded, color: Colors.white),
+              tooltip: 'Official Extension Repo',
+              onPressed: _openOfficialRepo,
+            ),
             IconButton(
               icon: const Icon(Icons.refresh_rounded, color: Colors.white),
               tooltip: 'Sync Repositories',

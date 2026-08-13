@@ -11,6 +11,7 @@ import 'package:u_player/modules/library/pages/library_nav_screen.dart';
 import 'package:u_player/modules/library/widgets/hero_flight_shuttles.dart';
 import 'package:u_player/modules/library/widgets/smart_artwork_widget.dart';
 import 'package:u_player/modules/player/pages/lyrics_screen.dart';
+import 'package:u_player/modules/player/pages/queue_screen.dart';
 import 'package:u_player/modules/player/pages/widgets/artwork_swipe_detector.dart';
 import 'package:u_player/modules/player/pages/widgets/cd_artwork_widget.dart';
 import 'package:u_player/modules/player/pages/widgets/fav_button.dart';
@@ -145,9 +146,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
     );
   }
 
+  void _openQueue() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const QueueScreen()),
+    );
+  }
+
   Future<void> _handleShuffleTap() async {
     final bool wholeLibraryAvailable = !_controller.queueIsWholeLibrary;
-
     await showDialog<void>(
       context: context,
       builder: (dialogContext) {
@@ -1042,6 +1048,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                       color: _controller.isShuffleEnabled
                                           ? Colors.white
                                           : Colors.grey,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  child: IconButton(
+                                    iconSize: 30,
+                                    onPressed: _openQueue,
+                                    icon: const Icon(
+                                      Icons.queue_music_rounded,
+                                      color: Colors.grey,
                                     ),
                                   ),
                                 ),

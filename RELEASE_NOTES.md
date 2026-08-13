@@ -1,38 +1,37 @@
-# Release Notes — u_player v2.0.0
+# Release Notes — u_player v2.1.0
 
 ## What's New
 
-### Go-Powered Download Engine
-* **Native Download Backend**: A Go (gomobile) backend now handles all streaming-provider downloads in the background — faster, more reliable, and tagged with metadata as files land on disk.
-* **Lossless FLAC Downloads**: Choose FLAC 16/44 or FLAC 24-bit quality; the engine automatically prioritizes lossless-capable providers (Tidal, Qobuz, Deezer, Amazon, Apple Music, Pandora) over lossy-only ones like SoundCloud and YouTube Music.
+### Queue, Revamped
+* **Dedicated Queue Screen**: Open it from the mini player's queue button. See the whole playback list, tap any song to jump to it, and swipe a row left to remove it from the queue (the current song is highlighted).
+* **Swipe to Add to Queue**: In the library, search results, and every song list, swipe a song left to reveal a green "Add to queue" layer — release past the halfway point and it's queued instantly with a confirmation snackbar. The row snaps back in place; your list is never disturbed.
+* **Smarter Swipes**: Queuing a song never pops the screen you're on anymore, and screen-level swipe-back (header areas) still works exactly as before.
 
-### Extension Store & Providers
-* **In-App Extension Store**: Install streaming-provider extensions (Tidal, Qobuz, Deezer, SoundCloud, YouTube Music, ...) directly from Settings → Extension Store & Providers.
-* **Zero-Login Verification**: Browser-based authorization that deep-links straight back into uPlayer (`spotiflac://`/`uplayer://` session grant) — no credentials typed in-app.
+### Cover Art Search
+* **Fix Missing Artwork**: Song options now offer "Search cover" — an iTunes-based cover search finds the right album art for tracks with missing artwork and attaches it.
 
-### Download Destination Control
-* **Pick Your Folder**: Downloads now land in `Music/uPlayer` on public storage when "All files access" is granted (requested automatically on Android 10+), or any folder you choose — with permission guidance built in.
-
-### Customization Screen (Settings → Customization)
-* **Song Tap Behavior**: Choose whether tapping a song opens the full player or just plays it in the mini player (the mini player tap then opens the full player).
-* **Seek Bar Style**: Move the waveform/normal seek bar toggle here — it now persists across restarts.
-* **Artwork Style**: Switch between five player artwork looks — normal square art, Picture Disc, Classic Silver CD, Jewel Case, and Minimal Dark CD — all spinning while playing.
-
-### Player Screen Polish
-* **Fixed Scaling**: The player layout no longer shrinks to fit — artwork flexes to fill available space while controls and buttons keep their intended size.
-* **Smooth Waveform**: The waveform seek bar now interpolates between position updates, gliding smoothly instead of jumping column-by-column.
-* **Messages Above the Mini Player**: Every snackbar in the app now pops up above the mini player instead of behind it.
+### Downloads
+* **FFmpeg Post-Processing**: Downloads now run through the same FFmpeg conversion pipeline as the desktop SpotiFLAC app — M4A/DASH sources are converted to FLAC (or the requested lossy format) and metadata is tagged as files land on disk.
+* **Quality-aware Source Ordering**: Download quality selection accounts for per-provider capabilities when picking the source.
 
 ---
 
-## Changes Since v1.3.0
+## Bug Fixes
 
-* CD-player artwork styles (Picture Disc / Silver / Jewel Case / Minimal Dark), all switchable from Customization.
-* Persisted seek bar & artwork preferences (previously reset on every launch).
-* All snackbars routed above the mini player + navigation bar.
-* Bug fixes across download folder selection, verification redirects, and bridge availability detection.
+* **"Have to tap twice" song rows**: A drag recognizer competing with row taps silently swallowed the first tap; rows now use a raw listener so every tap fires first time.
+* **Red screen on mini player**: The mini player's queue button could crash the app when the player screen wasn't open (a tooltip rendered outside the navigator). Gone.
+* **Swipe-down on the player** dismisses cleanly without a crash.
+* **Queue state handling** hardened against audio-player edge cases when removing sources.
 
 ---
+
+## v2.0.0
+
+* Go-powered download engine with lossless FLAC downloads (Tidal, Qobuz, Deezer, Amazon, Apple Music, Pandora prioritization).
+* In-app extension store with zero-login browser verification.
+* Download destination control (public Music/uPlayer folder with all-files-access guidance).
+* Customization screen: song tap behavior, seek bar style, five artwork styles (Picture Disc / Classic Silver CD / Jewel Case / Minimal Dark CD), all persisted.
+* Player screen polish: fixed scaling, smooth waveform interpolation, snackbars routed above the mini player.
 
 ## v1.2.0 & Earlier
 

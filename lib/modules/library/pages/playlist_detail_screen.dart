@@ -6,6 +6,7 @@ import 'package:u_player/core/models/playlist_model.dart';
 import 'package:u_player/core/services/player/playback_controller.dart';
 import 'package:u_player/core/services/player/tap_preference.dart';
 import 'package:u_player/core/services/playlist/playlist_service.dart';
+import 'package:u_player/core/utils/app_snackbar.dart';
 import 'package:u_player/modules/library/widgets/app_gradient_background.dart';
 import 'package:u_player/modules/library/widgets/swipe_back_detector.dart';
 import 'package:u_player/core/theme/dynamic_gradient_background/dynamic_gradient_background.dart';
@@ -250,17 +251,30 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
           final song = _songs[index - 1];
           return Dismissible(
             key: ValueKey(song.id),
-            direction: DismissDirection.endToStart,
+            direction: DismissDirection.horizontal,
             background: Container(
+              alignment: Alignment.centerLeft,
+              padding: const EdgeInsets.only(left: 24),
+              color: Colors.blueAccent,
+              child: const Icon(Icons.playlist_play_rounded, color: Colors.white),
+            ),
+            secondaryBackground: Container(
               alignment: Alignment.centerRight,
               padding: const EdgeInsets.only(right: 24),
               color: Colors.redAccent,
               child: const Icon(Icons.delete, color: Colors.white),
             ),
-            onDismissed: (_) async {
+            confirmDismiss: (direction) async {
+              if (direction == DismissDirection.startToEnd) {
+                PlaybackController.instance.addToQueue(song);
+                AppSnackBar.show('"${song.title}" added to queue', context: context);
+                return false;
+              }
               await PlaylistService().removeSong(_playlist.id, song.id);
               _loadSongs();
+              return true;
             },
+            onDismissed: (_) {},
             child: ListTile(
               leading: ClipRRect(
                 borderRadius: BorderRadius.circular(8),

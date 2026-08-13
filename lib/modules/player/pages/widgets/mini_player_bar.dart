@@ -5,6 +5,7 @@ import 'package:u_player/core/services/player/playback_controller.dart';
 import 'package:u_player/modules/library/widgets/smart_artwork_widget.dart';
 import 'package:u_player/core/navigation/app_keys.dart';
 import 'package:u_player/modules/player/pages/player_screen.dart';
+import 'package:u_player/modules/player/pages/queue_screen.dart';
 
 class MiniPlayerBar extends StatelessWidget {
   const MiniPlayerBar({super.key});
@@ -166,15 +167,28 @@ class _MiniPlayerCard extends StatelessWidget {
                 stream: controller.audioPlayer.playerStateStream,
                 builder: (context, snapshot) {
                   final isPlaying = snapshot.data?.playing ?? false;
-                  return IconButton(
-                    icon: Icon(isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded, color: Colors.white),
-                    onPressed: () {
-                      if (isPlaying) {
-                        controller.audioPlayer.pause();
-                      } else {
-                        controller.audioPlayer.play();
-                      }
-                    },
+                  return Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.queue_music_rounded, color: Colors.white70),
+                        onPressed: () {
+                          rootNavigatorKey.currentState?.push(
+                            MaterialPageRoute(builder: (_) => const QueueScreen()),
+                          );
+                        },
+                      ),
+                      IconButton(
+                        icon: Icon(isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded, color: Colors.white),
+                        onPressed: () {
+                          if (isPlaying) {
+                            controller.audioPlayer.pause();
+                          } else {
+                            controller.audioPlayer.play();
+                          }
+                        },
+                      ),
+                    ],
                   );
                 },
               ),

@@ -28,6 +28,10 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
   // unique album instead of once per track. Null value = "checked, no art".
   final Map<int, String?> _artworkUriCache = {};
 
+  // Guards the queue rebuild that pushes lazily-resolved artwork into the
+  // notification's MediaItem tag (see _rebuildCurrentQueuePreservingPlayback).
+  bool _isRebuildingQueue = false;
+
   Timer? _stateSaveTimer;
   static const Duration _stateSaveInterval = Duration(seconds: 5);
 
@@ -107,7 +111,7 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
             _hasCountedCurrentPlayback = false;
             _loadWaveformFor(queue[index]);
             _persistPlaybackState();
-            _resolveArtworkUri(queue[index]);
+            unawaited(_resolveAndPushArtwork(queue[index]));
             notifyListeners();
           }
         });
@@ -252,19 +256,19 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
       useLazyPreparation: true,
       children: List.generate(list.length, (i) {
         final song = list[i];
-        final artUriString = (i == initialIndex)
-            ? initialArtUri
-            : _artworkUriCache[song.albumId ?? song.id];
-        return AudioSource.uri(
-          Uri.file(song.data),
-          tag: MediaItem(
-            id: song.id.toString(),
-            title: song.title,
-            artist: song.artist == '<unknown>' ? 'Unknown Artist' : (song.artist ?? 'Unknown Artist'),
-            album: song.album == '<unknown>' ? 'Unknown Album' : (song.album ?? 'Unknown Album'),
-            artUri: artUriString != null ? Uri.parse(artUriString) : null,
-          ),
-        );
+        if (i == initialIndex && initialArtUri != null) {
+          return AudioSource.uri(
+            Uri.file(song.data),
+            tag: MediaItem(
+              id: song.id.toString(),
+              title: song.title,
+              artist: song.artist == '<unknown>' ? 'Unknown Artist' : (song.artist ?? 'Unknown Artist'),
+              album: song.album == '<unknown>' ? 'Unknown Album' : (song.album ?? 'Unknown Album'),
+              artUri: Uri.parse(initialArtUri),
+            ),
+          );
+        }
+        return _audioSourceForSong(song);
       }),
     );
   }
@@ -290,7 +294,10 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
     queueIsWholeLibrary = _isSameSongs(queue, songs);
     currentIndex = clampedStart;
 
-    await audioPlayer.setAudioSource(await _createPlaylist(queue), initialIndex: clampedStart);
+    await audioPlayer.setAudioSource(
+      await _createPlaylist(queue, initialIndex: clampedStart),
+      initialIndex: clampedStart,
+    );
 
     if (wasShuffled) {
       await audioPlayer.shuffle();
@@ -311,6 +318,101 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
       if (a[i].id != b[i].id) return false;
     }
     return true;
+  }
+
+  // --- Queue management ---
+
+  AudioSource _audioSourceForSong(SongModel song) {
+    final artUriString = _artworkUriCache[song.albumId ?? song.id];
+    return AudioSource.uri(
+      Uri.file(song.data),
+      tag: MediaItem(
+        id: song.id.toString(),
+        title: song.title,
+        artist: song.artist == '<unknown>' ? 'Unknown Artist' : (song.artist ?? 'Unknown Artist'),
+        album: song.album == '<unknown>' ? 'Unknown Album' : (song.album ?? 'Unknown Album'),
+        artUri: artUriString != null ? Uri.parse(artUriString) : null,
+      ),
+    );
+  }
+
+  /// Appends a song to the end of the current queue. When nothing is loaded
+  /// yet it starts playback with just this song.
+  Future<void> addToQueue(SongModel song) async {
+    await ensureInitialized();
+    if (queue.isEmpty) {
+      await playQueue([song], startIndex: 0);
+      return;
+    }
+    queue.add(song);
+    queueIsWholeLibrary = false;
+    try {
+      await audioPlayer.addAudioSource(_audioSourceForSong(song));
+    } catch (e) {
+      debugPrint('[PlaybackController] addAudioSource error: $e');
+    }
+    notifyListeners();
+  }
+
+  /// Removes the song at [index] from the queue, keeping playback in sync.
+  Future<void> removeFromQueue(int index) async {
+    if (queue.isEmpty || index < 0 || index >= queue.length) return;
+
+    queue.removeAt(index);
+
+    if (index < currentIndex) {
+      currentIndex--;
+    } else if (index == currentIndex) {
+      _trackedSongId = null;
+    }
+
+    if (audioPlayer.audioSources.isNotEmpty) {
+      try {
+        await audioPlayer.removeAudioSourceAt(
+          index.clamp(0, audioPlayer.audioSources.length - 1),
+        );
+      } catch (e) {
+        debugPrint('[PlaybackController] removeAudioSourceAt error: $e');
+      }
+    }
+
+    if (queue.isEmpty) {
+      currentIndex = 0;
+    }
+    queueIsWholeLibrary = false;
+    notifyListeners();
+  }
+
+  /// Jumps playback to the song at [index] in the current queue.
+  Future<void> jumpToQueueIndex(int index) async {
+    if (queue.isEmpty || index < 0 || index >= queue.length) return;
+    currentIndex = index;
+    try {
+      await audioPlayer.seek(Duration.zero, index: index);
+      if (!audioPlayer.playing) {
+        await audioPlayer.play();
+      }
+    } catch (e) {
+      debugPrint('[PlaybackController] jumpToQueueIndex error: $e');
+    }
+    notifyListeners();
+  }
+
+  /// Drops the cached artwork for a song's album (and its temporary cover
+  /// file) so the next playback rebuild re-reads it from the audio file.
+  /// Call after embedding new artwork into a track.
+  Future<void> invalidateArtworkCache(SongModel song) async {
+    final cacheKey = song.albumId ?? song.id;
+    _artworkUriCache.remove(cacheKey);
+    try {
+      final tempDir = await getTemporaryDirectory();
+      final file = File('${tempDir.path}/u_player_art_$cacheKey.jpg');
+      if (await file.exists()) {
+        await file.delete();
+      }
+    } catch (e) {
+      debugPrint('[PlaybackController] invalidateArtworkCache error: $e');
+    }
   }
 
   // --- Play counts ---
@@ -431,11 +533,70 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
     currentIndex = newIndex == -1 ? 0 : newIndex;
 
     await audioPlayer.setAudioSource(
-      await _createPlaylist(queue),
-      initialIndex: currentIndex,
+      await _createPlaylist(queue, initialIndex: newIndex),
+      initialIndex: newIndex,
       initialPosition: position,
     );
     await audioPlayer.play();
+  }
+
+  /// Resolves the current track's artwork lazily and, if it wasn't embedded
+  /// in the MediaItem tag when the queue was built, rebuilds the queue so the
+  /// notification receives the artUri. At most once per album per session
+  /// (artwork is cached per album).
+  Future<void> _resolveAndPushArtwork(SongModel song) async {
+    final uri = await _resolveArtworkUri(song);
+    if (uri == null) return;
+
+    final tag = audioPlayer.sequenceState.currentSource?.tag;
+    if (tag is MediaItem && tag.artUri != null) return;
+
+    await _rebuildCurrentQueuePreservingPlayback();
+  }
+
+  /// Rebuilds the queue with all currently-resolved artwork embedded in the
+  /// MediaItem tags, preserving playback position and play/shuffle state.
+  Future<void> _rebuildCurrentQueuePreservingPlayback() async {
+    if (_isRebuildingQueue || queue.isEmpty) return;
+    _isRebuildingQueue = true;
+    try {
+      final playing = currentSong;
+      final position = audioPlayer.position;
+      final wasPlaying = audioPlayer.playing;
+      final wasShuffled = isShuffleEnabled;
+
+      if (wasShuffled) {
+        await audioPlayer.setShuffleModeEnabled(false);
+      }
+
+      final newIndex = playing != null ? queue.indexWhere((s) => s.id == playing.id) : 0;
+      currentIndex = newIndex == -1 ? 0 : newIndex;
+
+      await audioPlayer.setAudioSource(
+        await _createPlaylist(queue, initialIndex: currentIndex),
+        initialIndex: currentIndex,
+        initialPosition: position,
+      );
+
+      if (wasShuffled) {
+        await audioPlayer.shuffle();
+        await audioPlayer.setShuffleModeEnabled(true);
+      }
+
+      if (wasPlaying) {
+        await audioPlayer.play();
+      }
+    } catch (e) {
+      debugPrint('[PlaybackController] artwork queue rebuild error: $e');
+    } finally {
+      _isRebuildingQueue = false;
+      // Playback may have moved on while the rebuild was running; make sure
+      // the now-current track's artwork is pushed too.
+      final index = audioPlayer.currentIndex;
+      if (index != null && index >= 0 && index < queue.length) {
+        unawaited(_resolveAndPushArtwork(queue[index]));
+      }
+    }
   }
 
   // --- Playback state persistence ---

@@ -9,6 +9,7 @@ import 'package:u_player/core/theme/dynamic_gradient_background/dynamic_gradient
 import 'package:u_player/modules/library/widgets/library_detail_header.dart';
 import 'package:u_player/modules/library/widgets/smart_artwork_widget.dart';
 import 'package:u_player/modules/library/widgets/song_options_dialog.dart';
+import 'package:u_player/modules/library/widgets/song_swipe_to_queue.dart';
 import 'package:u_player/modules/library/widgets/swipe_back_detector.dart';
 import 'package:u_player/modules/player/pages/player_screen.dart';
 
@@ -187,7 +188,9 @@ class _SongTile extends StatelessWidget {
         final isPlaying = controller.currentSong?.id == song.id;
         final duration = Duration(milliseconds: song.duration ?? 0);
 
-        return Material(
+        return SongSwipeToQueue(
+          song: song,
+          child: Material(
           color: Colors.transparent,
           child: InkWell(
             borderRadius: BorderRadius.circular(14),
@@ -310,6 +313,7 @@ class _SongTile extends StatelessWidget {
                 ],
               ),
             ),
+          ),
           ),
         );
       },

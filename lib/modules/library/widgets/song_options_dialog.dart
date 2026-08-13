@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 import 'package:u_player/core/services/favorites_service/favorites_service.dart';
+import 'package:u_player/core/services/player/playback_controller.dart';
 import 'package:u_player/core/services/playlist/playlist_service.dart';
 import 'package:u_player/core/utils/app_snackbar.dart';
+import 'package:u_player/modules/library/widgets/cover_search_dialog.dart';
 import 'package:u_player/modules/library/widgets/tag_editor_dialog.dart';
 
 class SongOptionsDialog extends StatefulWidget {
@@ -182,9 +184,26 @@ class _SongOptionsDialogState extends State<SongOptionsDialog> {
             onTap: _toggleFavorite,
           ),
           ListTile(
+            leading: const Icon(Icons.playlist_play_rounded, color: Colors.white70),
+            title: const Text('Add to Queue', style: TextStyle(color: Colors.white)),
+            onTap: () {
+              Navigator.pop(context);
+              PlaybackController.instance.addToQueue(widget.song);
+              AppSnackBar.show('"${widget.song.title}" added to queue', context: context);
+            },
+          ),
+          ListTile(
             leading: const Icon(Icons.playlist_add_rounded, color: Colors.white70),
             title: const Text('Add to Playlist', style: TextStyle(color: Colors.white)),
             onTap: _showAddToPlaylistDialog,
+          ),
+          ListTile(
+            leading: const Icon(Icons.image_search_rounded, color: Colors.white70),
+            title: const Text('Search & Set Cover Art', style: TextStyle(color: Colors.white)),
+            onTap: () {
+              Navigator.pop(context);
+              CoverSearchDialog.show(context, widget.song);
+            },
           ),
           ListTile(
             leading: const Icon(Icons.edit_note_rounded, color: Colors.white70),

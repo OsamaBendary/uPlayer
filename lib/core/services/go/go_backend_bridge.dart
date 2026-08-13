@@ -253,6 +253,41 @@ class GoBackendBridge {
   Future<void> resetDownloadCancel(String itemId) =>
       _call('resetDownloadCancel', {'item_id': itemId});
 
+  /// Runs the enabled extensions' post-processing hooks (ffmpeg conversion)
+  /// on [filePath]. Mirrors SpotiFLAC Mobile's runPostProcessingV2 contract:
+  /// the input JSON carries either `path` or `uri`, and the metadata map is
+  /// passed to every hook verbatim.
+  Future<Map<String, dynamic>> runPostProcessingV2(
+    String filePath, {
+    Map<String, dynamic>? metadata,
+  }) async {
+    final input = <String, dynamic>{};
+    if (filePath.startsWith('content://')) {
+      input['uri'] = filePath;
+    } else {
+      input['path'] = filePath;
+    }
+    final raw = await _call('runPostProcessingV2', {
+      'input': jsonEncode(input),
+      'metadata': metadata != null ? jsonEncode(metadata) : '',
+    });
+    return _decodeRawMap(raw, 'runPostProcessingV2');
+  }
+
+  /// Writes tags on an audio file via Go's native tag writers (FLAC handled
+  /// natively; MP3/Opus/M4A fall back per the Go implementation). The
+  /// metadata map supports `cover_path` pointing at a local image file.
+  Future<Map<String, dynamic>> editFileMetadata(
+    String filePath,
+    Map<String, dynamic> metadata,
+  ) async {
+    final raw = await _call('editFileMetadata', {
+      'file_path': filePath,
+      'metadata_json': jsonEncode(metadata),
+    });
+    return _decodeRawMap(raw, 'editFileMetadata');
+  }
+
   // ─── Extensions ─────────────────────────────────────────────────────────
 
   Future<Map<String, dynamic>> loadExtensionsFromDir(String dirPath) async {

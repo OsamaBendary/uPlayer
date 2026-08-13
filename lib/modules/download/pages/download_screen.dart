@@ -4,6 +4,7 @@ import 'package:u_player/core/services/download/download_service.dart';
 import 'package:u_player/core/services/extension/extension_service.dart';
 import 'package:u_player/core/services/go/go_backend_bridge.dart';
 import 'package:u_player/modules/download/pages/download_collection_screen.dart';
+import 'package:u_player/modules/download/widgets/download_quality_picker.dart';
 import 'package:u_player/modules/library/widgets/app_gradient_background.dart';
 import 'package:u_player/modules/library/widgets/label_chip.dart';
 import 'package:u_player/modules/settings/pages/extension_management_screen.dart';
@@ -525,7 +526,12 @@ class _DownloadScreenState extends State<DownloadScreen> {
                     IconButton(
                       icon: const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 26),
                       tooltip: 'Download failed. Tap to retry',
-                      onPressed: () {
+                      onPressed: () async {
+                        final quality = await showDownloadQualityPicker(
+                          context,
+                          initial: DownloadQualityChoice.fromTask(task.quality, task.providerQualityId),
+                        );
+                        if (quality == null) return;
                         DownloadService().activeDownloads.remove(track.id);
                         DownloadService().startDownload(
                           trackId: track.id,
@@ -535,6 +541,7 @@ class _DownloadScreenState extends State<DownloadScreen> {
                           downloadUrl: track.downloadUrl,
                           deezerTrackId: track.deezerTrackId,
                           coverUrl: track.coverUrl,
+                          qualityChoice: quality,
                           onProgressUpdate: () => setState(() {}),
                         );
                         setState(() {});
@@ -553,7 +560,9 @@ class _DownloadScreenState extends State<DownloadScreen> {
                   else
                     IconButton(
                       icon: const Icon(Icons.file_download_rounded, color: Colors.white),
-                      onPressed: () {
+                      onPressed: () async {
+                        final quality = await showDownloadQualityPicker(context);
+                        if (quality == null) return;
                         DownloadService().startDownload(
                           trackId: track.id,
                           title: track.name,
@@ -562,6 +571,7 @@ class _DownloadScreenState extends State<DownloadScreen> {
                           downloadUrl: track.downloadUrl,
                           deezerTrackId: track.deezerTrackId,
                           coverUrl: track.coverUrl,
+                          qualityChoice: quality,
                           onProgressUpdate: () => setState(() {}),
                         );
                         setState(() {});

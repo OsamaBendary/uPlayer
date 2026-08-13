@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:u_player/core/services/download/download_service.dart';
 import 'package:u_player/core/services/extension/extension_service.dart';
 import 'package:u_player/core/utils/app_snackbar.dart';
+import 'package:u_player/modules/download/widgets/download_quality_picker.dart';
 import 'package:u_player/modules/library/widgets/app_gradient_background.dart';
 import 'package:u_player/modules/library/widgets/label_chip.dart';
 import 'package:u_player/modules/library/widgets/swipe_back_detector.dart';
@@ -60,10 +61,13 @@ class _DownloadCollectionScreenState extends State<DownloadCollectionScreen> {
 
   Future<void> _downloadAllAlbumTracks() async {
     if (_tracks.isEmpty) return;
+    final qualityChoice = await showDownloadQualityPicker(context);
+    if (qualityChoice == null || !mounted) return;
     setState(() => _isBatchDownloading = true);
 
     await DownloadService().batchDownload(
       _tracks,
+      qualityChoice: qualityChoice,
       onProgressUpdate: () {
         if (mounted) setState(() {});
       },
@@ -77,6 +81,8 @@ class _DownloadCollectionScreenState extends State<DownloadCollectionScreen> {
 
   Future<void> _downloadAllArtistReleases() async {
     if (_releases.isEmpty) return;
+    final qualityChoice = await showDownloadQualityPicker(context);
+    if (qualityChoice == null || !mounted) return;
     setState(() => _isBatchDownloading = true);
 
     final List<SearchResultTrack> allTracks = [];
@@ -87,6 +93,7 @@ class _DownloadCollectionScreenState extends State<DownloadCollectionScreen> {
 
     await DownloadService().batchDownload(
       allTracks,
+      qualityChoice: qualityChoice,
       onProgressUpdate: () {
         if (mounted) setState(() {});
       },
@@ -441,7 +448,12 @@ class _DownloadCollectionScreenState extends State<DownloadCollectionScreen> {
                     IconButton(
                       icon: const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 24),
                       tooltip: 'Download failed. Tap to retry',
-                      onPressed: () {
+                      onPressed: () async {
+                        final quality = await showDownloadQualityPicker(
+                          context,
+                          initial: DownloadQualityChoice.fromTask(task.quality, task.providerQualityId),
+                        );
+                        if (quality == null) return;
                         DownloadService().activeDownloads.remove(track.id);
                         DownloadService().startDownload(
                           trackId: track.id,
@@ -451,6 +463,7 @@ class _DownloadCollectionScreenState extends State<DownloadCollectionScreen> {
                           downloadUrl: track.downloadUrl,
                           deezerTrackId: track.deezerTrackId,
                           coverUrl: track.coverUrl ?? widget.coverUrl,
+                          qualityChoice: quality,
                           onProgressUpdate: () => setState(() {}),
                         );
                         setState(() {});
@@ -469,7 +482,9 @@ class _DownloadCollectionScreenState extends State<DownloadCollectionScreen> {
                   else
                     IconButton(
                       icon: const Icon(Icons.file_download_rounded, color: Colors.white70),
-                      onPressed: () {
+                      onPressed: () async {
+                        final quality = await showDownloadQualityPicker(context);
+                        if (quality == null) return;
                         DownloadService().startDownload(
                           trackId: track.id,
                           title: track.name,
@@ -478,6 +493,7 @@ class _DownloadCollectionScreenState extends State<DownloadCollectionScreen> {
                           downloadUrl: track.downloadUrl,
                           deezerTrackId: track.deezerTrackId,
                           coverUrl: track.coverUrl ?? widget.coverUrl,
+                          qualityChoice: quality,
                           onProgressUpdate: () => setState(() {}),
                         );
                         setState(() {});

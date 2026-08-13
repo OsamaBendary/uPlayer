@@ -16,6 +16,53 @@ enum DownloadQuality {
   const DownloadQuality(this.label, this.description);
 }
 
+/// One selectable download quality: either one of the app's standard
+/// qualities or a provider-specific quality option (e.g. "Dolby Atmos").
+class DownloadQualityChoice {
+  final DownloadQuality? appQuality;
+
+  /// Provider quality option id, e.g. "DOLBY_ATMOS", "HI_RES_LOSSLESS".
+  final String? providerQualityId;
+  final String? label;
+  final String? description;
+
+  const DownloadQualityChoice({
+    this.appQuality,
+    this.providerQualityId,
+    this.label,
+    this.description,
+  });
+
+  factory DownloadQualityChoice.app(DownloadQuality quality) =>
+      DownloadQualityChoice(
+        appQuality: quality,
+        label: quality.label,
+        description: quality.description,
+      );
+
+  /// Rebuilds the choice a queued task was started with (for retries).
+  factory DownloadQualityChoice.fromTask(
+    DownloadQuality quality,
+    String? providerQualityId,
+  ) {
+    final token = providerQualityId?.trim();
+    if (token != null && token.isNotEmpty) {
+      return DownloadQualityChoice(providerQualityId: token, label: token);
+    }
+    return DownloadQualityChoice.app(quality);
+  }
+
+  bool matches(DownloadQualityChoice other) {
+    if (providerQualityId != null || other.providerQualityId != null) {
+      return providerQualityId != null &&
+          other.providerQualityId != null &&
+          providerQualityId!.toLowerCase() ==
+              other.providerQualityId!.toLowerCase();
+    }
+    return appQuality == other.appQuality;
+  }
+}
+
 /// Official community registry so the store works out of the box,
 /// mirroring SpotiFLaC's own default store.
 const String kOfficialExtensionRepo = 'https://github.com/zarzet/SpotiFLAC-Extension';
@@ -34,6 +81,11 @@ class ExtensionManifest {
   final bool hasDownloadProvider;
   bool isEnabled;
 
+  /// Raw JSON from the Go backend (`getInstalledExtensions`) so pipeline
+  /// helpers can read capability fields the manifest model does not parse:
+  /// `post_processing`, `capabilities`, `quality_options`, ...
+  final Map<String, dynamic> raw;
+
   ExtensionManifest({
     required this.id,
     required this.name,
@@ -47,7 +99,75 @@ class ExtensionManifest {
     this.homepage,
     this.hasDownloadProvider = false,
     this.isEnabled = true,
+    this.raw = const {},
   });
+
+  /// True when this extension ships enabled post-processing hooks (ffmpeg
+  /// conversion to FLAC after the provider stream lands). Matches the
+  /// reference `postProcessing?.enabled`.
+  bool get hasPostProcessing {
+    final pp = raw['post_processing'];
+    return pp is Map && pp['enabled'] == true;
+  }
+
+  /// The provider stream must not get lyrics embedded (raw DASH streams that
+  /// would break on tag writes). Mirrors the reference `skip_lyrics`.
+  bool get skipLyrics => raw['skip_lyrics'] == true;
+
+  /// The extension converts non-FLAC provider streams (DASH/Opus/M4A) to
+  /// lossless itself; the host must only request the output container.
+  bool get requiresNativeContainerConversion {
+    final caps = raw['capabilities'];
+    if (caps is! Map) return false;
+    return caps['requiresContainerConversion'] == true ||
+        caps['requiresNativeContainerConversion'] == true;
+  }
+
+  /// Built-in provider ids this extension replaces (["tidal"], ["deezer"], ...).
+  List<String> get replacesBuiltInProviders {
+    final caps = raw['capabilities'];
+    if (caps is! Map) return const [];
+    final value = caps['replacesBuiltInProviders'];
+    if (value is! List) return const [];
+
+    final normalized = <String>[];
+    for (final item in value) {
+      if (item is! String) continue;
+      final trimmed = item.trim().toLowerCase();
+      if (trimmed.isEmpty || normalized.contains(trimmed)) continue;
+      normalized.add(trimmed);
+    }
+    return normalized;
+  }
+
+  /// Preferred output extension advertised by the extension (e.g. ".flac"),
+  /// or null when the extension does not impose one.
+  String? get preferredDownloadOutputExtension {
+    final caps = raw['capabilities'];
+    if (caps is! Map) return null;
+    final value = caps['downloadOutputExtension'];
+    if (value is! String) return null;
+    final trimmed = value.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
+
+  /// Native output extensions that must be kept as-is (e.g. ".m4a" for
+  /// Dolby/DASH decrypted streams that cannot be upscaled to FLAC).
+  List<String> get preservedNativeOutputExtensions {
+    final caps = raw['capabilities'];
+    if (caps is! Map) return const [];
+    final value = caps['preserveNativeOutputExtensions'];
+    if (value is! List) return const [];
+
+    final normalized = <String>[];
+    for (final item in value) {
+      if (item is! String) continue;
+      final trimmed = item.trim().toLowerCase();
+      if (trimmed.isEmpty) continue;
+      normalized.add(trimmed.startsWith('.') ? trimmed : '.$trimmed');
+    }
+    return normalized;
+  }
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -94,6 +214,7 @@ class ExtensionManifest {
       hasDownloadProvider:
           json['has_download_provider'] == true || json['category'] == 'download',
       isEnabled: json['isEnabled'] as bool? ?? true,
+      raw: json,
     );
   }
 
@@ -130,6 +251,7 @@ class ExtensionManifest {
       baseUrl: json['homepage']?.toString(),
       hasDownloadProvider: json['has_download_provider'] == true,
       isEnabled: json['enabled'] == true,
+      raw: json,
     );
   }
 }
@@ -353,6 +475,169 @@ class ExtensionService {
       await prefs.setString(_prefProviderIdKey, selectedProviderId!);
     }
   }
+
+  /// True when any enabled download extension ships enabled post-processing
+  /// hooks (the host must invoke them after the download lands).
+  bool hasEnabledPostProcessing() =>
+      installedExtensions.any((e) => e.isEnabled && e.hasPostProcessing);
+
+  /// True when [source]/[service] matches an enabled extension that asks the
+  /// host to skip lyrics (raw DASH streams that break on tag writes).
+  bool skipLyricsFor(String? source, String? service) {
+    final candidates = <String>{};
+    if (source != null && source.isNotEmpty) {
+      candidates.add(source.trim().toLowerCase());
+    }
+    if (service != null && service.isNotEmpty) {
+      candidates.add(service.trim().toLowerCase());
+    }
+    if (candidates.isEmpty) return false;
+    return installedExtensions.any((e) =>
+        e.isEnabled &&
+        e.skipLyrics &&
+        candidates.contains(e.id.toLowerCase()));
+  }
+
+  /// True when the enabled extension responsible for [service] converts
+  /// non-FLAC provider streams to lossless itself; the client must only ask
+  /// for the right output container.
+  bool requiresNativeContainerConversionFor(String service) {
+    final normalizedService = service.trim().toLowerCase();
+    if (normalizedService.isEmpty) return false;
+    return installedExtensions.any((e) =>
+        e.isEnabled &&
+        e.hasDownloadProvider &&
+        e.id.toLowerCase() == normalizedService &&
+        e.requiresNativeContainerConversion);
+  }
+
+  /// Preferred output extension advertised by the extension serving
+  /// [service] (e.g. ".flac"), or null when it imposes none. `.mp4` is
+  /// normalized to `.m4a`.
+  String? preferredDownloadOutputExtensionFor(String service) {
+    final normalizedService = service.trim().toLowerCase();
+    if (normalizedService.isEmpty) return null;
+    for (final ext in installedExtensions) {
+      if (!ext.isEnabled || !ext.hasDownloadProvider) continue;
+      if (ext.id.toLowerCase() != normalizedService) continue;
+      final preferred = ext.preferredDownloadOutputExtension;
+      if (preferred == null) return null;
+      final normalized = preferred.startsWith('.')
+          ? preferred.toLowerCase()
+          : '.${preferred.toLowerCase()}';
+      if (normalized == '.mp4') return '.m4a';
+      const allowed = <String>{'.flac', '.m4a', '.mp3', '.opus'};
+      if (allowed.contains(normalized)) return normalized;
+      return null;
+    }
+    return null;
+  }
+
+  /// True when the enabled extension serving [service] must keep the native
+  /// output extension (e.g. ".m4a" for Dolby/DASH streams).
+  bool preservesNativeOutputExtension(String service, String ext) {
+    final normalizedService = service.trim().toLowerCase();
+    final normalizedExt = ext.trim().toLowerCase();
+    if (normalizedService.isEmpty || normalizedExt.isEmpty) return false;
+    return installedExtensions.any((e) =>
+        e.isEnabled &&
+        e.hasDownloadProvider &&
+        e.id.toLowerCase() == normalizedService &&
+        e.preservedNativeOutputExtensions.contains(normalizedExt));
+  }
+
+  /// True when the enabled extension serving [service] replaces the built-in
+  /// provider [legacyProviderId] (e.g. "tidal").
+  bool replacesBuiltInProvider(String service, String legacyProviderId) {
+    final normalizedService = service.trim().toLowerCase();
+    final normalizedLegacy = legacyProviderId.trim().toLowerCase();
+    if (normalizedService.isEmpty || normalizedLegacy.isEmpty) return false;
+    return installedExtensions.any((e) =>
+        e.isEnabled &&
+        e.hasDownloadProvider &&
+        e.id.toLowerCase() == normalizedService &&
+        e.replacesBuiltInProviders.contains(normalizedLegacy));
+  }
+
+  /// Best provider to pin lossless downloads to when the user hasn't picked
+  /// one explicitly: Tidal, then Qobuz, then the first enabled lossless-
+  /// capable installed extension. Matches both legacy ("tidal") and current
+  /// registry ("tidal-web") ids. Null when nothing usable is installed.
+  String? losslessPreferredProvider() {
+    final installed = installedExtensions
+        .where((e) => e.isEnabled && e.hasDownloadProvider)
+        .toList();
+    for (final preferred in const ['tidal', 'tidal-web']) {
+      if (installed.any((e) => e.id.toLowerCase() == preferred)) return preferred;
+    }
+    for (final preferred in const ['qobuz', 'qobuz-web']) {
+      if (installed.any((e) => e.id.toLowerCase() == preferred)) return preferred;
+    }
+    for (final ext in installed) {
+      if (canDeliverLossless(ext.id)) return ext.id;
+    }
+    return null;
+  }
+
+  /// Highest audio quality the enabled download providers advertise, shown
+  /// on search results. Stable — independent of the user's selected download
+  /// quality — so the badge reflects what providers can actually deliver
+  /// instead of changing whenever the quality setting changes.
+  String highestAvailableQualityLabel() {
+    String? bestLabel;
+    var bestRank = 99;
+    for (final ext in installedExtensions) {
+      if (!ext.isEnabled || !ext.hasDownloadProvider) continue;
+      final rawOptions = ext.raw['quality_options'];
+      if (rawOptions is! List) continue;
+      for (final option in rawOptions) {
+        if (option is! Map) continue;
+        final id = option['id']?.toString().trim().toLowerCase() ?? '';
+        if (id.isEmpty) continue;
+        final label = option['label']?.toString().trim() ?? '';
+        final rank = _qualityOptionRank(id);
+        if (rank >= bestRank) continue;
+        bestRank = rank;
+        bestLabel = _qualityOptionLabel(rank, label);
+      }
+    }
+    if (bestLabel != null) return bestLabel;
+    final hasLossless = installedExtensions.any(
+        (e) => e.isEnabled && e.hasDownloadProvider && canDeliverLossless(e.id));
+    return hasLossless ? 'FLAC 16-bit' : 'MP3 320k';
+  }
+
+  static int _qualityOptionRank(String id) {
+    if (id.contains('dolby')) return 0;
+    if (id.contains('hi_res') ||
+        id.contains('hires') ||
+        (id.contains('flac') && id.contains('24'))) {
+      return 1;
+    }
+    if (id.contains('flac') ||
+        id.contains('lossless') ||
+        id.contains('alac') ||
+        id.contains('master')) {
+      return 2;
+    }
+    if (id.contains('320') ||
+        id.contains('high') ||
+        id.contains('mp3') ||
+        id.contains('opus') ||
+        id.contains('aac')) {
+      return 3;
+    }
+    if (id.contains('128') || id.contains('low')) return 4;
+    return 5;
+  }
+
+  static String _qualityOptionLabel(int rank, String label) => switch (rank) {
+        0 => label.isNotEmpty ? label : 'Dolby Atmos',
+        1 => label.isNotEmpty ? label : 'FLAC 24-bit',
+        2 => 'FLAC 16-bit',
+        3 => 'MP3 320k',
+        _ => 'MP3 128k',
+      };
 
   /// Adds a repository URL, syncs it into the Go backend, then refreshes the
   /// store from Go (the registry URL is resolved + cached there).
@@ -686,7 +971,7 @@ Future<List<ExtensionManifest>> fetchExtensionsFromRepo(String repoUrl) async {
             deezerTrackId: item['id'].toString(),
             releaseYear: _extractYear(item['album']?['release_date']),
             providerName: providerName,
-            qualityLabel: selectedQuality.label,
+            qualityLabel: highestAvailableQualityLabel(),
           ));
         }
       }
@@ -724,7 +1009,7 @@ Future<List<ExtensionManifest>> fetchExtensionsFromRepo(String repoUrl) async {
               downloadUrl: null,
               deezerTrackId: null,
               providerName: providerName,
-              qualityLabel: selectedQuality.label,
+              qualityLabel: highestAvailableQualityLabel(),
             ));
           }
         }
@@ -850,7 +1135,7 @@ Future<List<ExtensionManifest>> fetchExtensionsFromRepo(String repoUrl) async {
             trackNumber: item['track_position'] as int?,
             releaseYear: releaseYear,
             providerName: 'FLAC Provider',
-            qualityLabel: selectedQuality.label,
+            qualityLabel: highestAvailableQualityLabel(),
           ));
         }
       }

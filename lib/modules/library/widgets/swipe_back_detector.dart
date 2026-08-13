@@ -16,6 +16,18 @@ import 'package:flutter/material.dart';
 /// `Listener` doesn't participate in gesture-arena disambiguation at all —
 /// it just reports raw pointer events — so it can watch for the swipe
 /// gesture without ever competing with (or eating) a descendant's tap.
+/// Pointer ids currently being tracked as a horizontal row swipe (e.g. the
+/// swipe-to-queue gesture on song rows). [SwipeBackDetector] consults this
+/// before popping: a row swipe is horizontal too, so without this a song
+/// being added to the queue would also pop the screen.
+final Set<int> _rowSwipePointers = <int>{};
+
+void claimRowSwipePointer(int pointer) => _rowSwipePointers.add(pointer);
+
+void releaseRowSwipePointer(int pointer) => _rowSwipePointers.remove(pointer);
+
+bool isRowSwipePointer(int pointer) => _rowSwipePointers.contains(pointer);
+
 class SwipeBackDetector extends StatefulWidget {
   final Widget child;
 
@@ -43,6 +55,10 @@ class _SwipeBackDetectorState extends State<SwipeBackDetector> {
 
         final dx = event.position.dx - start.dx;
         final dy = event.position.dy - start.dy;
+
+        // A row-level swipe (swipe-to-queue) is handled by the row itself —
+        // don't also pop the route for it.
+        if (isRowSwipePointer(event.pointer)) return;
 
         // Only counts as a swipe-back if horizontal movement clearly
         // dominates — otherwise a vertical scroll, or a diagonal flick

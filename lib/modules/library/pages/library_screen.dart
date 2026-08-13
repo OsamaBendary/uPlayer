@@ -9,6 +9,8 @@ import 'package:u_player/modules/library/widgets/album_card.dart';
 import 'package:u_player/modules/library/widgets/app_gradient_background.dart';
 import 'package:u_player/modules/library/widgets/artist_card.dart';
 import 'package:u_player/modules/library/widgets/label_chip.dart';
+import 'package:u_player/modules/library/widgets/song_options_dialog.dart';
+import 'package:u_player/modules/library/widgets/song_swipe_to_queue.dart';
 
 /// Pre-calculated positions for zero-lag scrub performance.
 class PrecomputedAlphabetData {
@@ -209,7 +211,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       ],
                     ),
                   ),
-                ],
+],
               ),
             ),
           ),
@@ -934,11 +936,14 @@ class _SearchSongTile extends StatelessWidget {
       animation: PlaybackController.instance,
       builder: (context, _) {
         final isPlaying = PlaybackController.instance.currentSong?.id == song.id;
-        return Material(
+        return SongSwipeToQueue(
+          song: song,
+          child: Material(
           color: Colors.transparent,
           child: InkWell(
             borderRadius: BorderRadius.circular(12),
             onTap: onTap,
+            onLongPress: () => SongOptionsDialog.show(context, song),
             child: Container(
               margin: const EdgeInsets.only(bottom: 8),
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -992,6 +997,7 @@ class _SearchSongTile extends StatelessWidget {
                 ],
               ),
             ),
+          ),
           ),
         );
       },

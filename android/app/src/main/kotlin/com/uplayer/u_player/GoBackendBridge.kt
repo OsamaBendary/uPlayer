@@ -128,6 +128,8 @@ class GoBackendBridge(private val context: Context) : MethodCallHandler {
         "clearItemProgress",
         "cancelDownload",
         "resetDownloadCancel",
+        "runPostProcessingV2",
+        "editFileMetadata",
         "releaseMemory",
         "releaseMemoryUnderPressure",
         "cleanupConnections",
@@ -289,6 +291,20 @@ class GoBackendBridge(private val context: Context) : MethodCallHandler {
                 go("ResetDownloadCancel", call.requireString("item_id"))
                 null
             }
+            "runPostProcessingV2" -> jsonResult(
+                go(
+                    "RunPostProcessingV2JSON",
+                    call.requireString("input"),
+                    call.requireString("metadata"),
+                ),
+            )
+            "editFileMetadata" -> jsonResult(
+                go(
+                    "EditFileMetadata",
+                    call.requireString("file_path"),
+                    call.requireString("metadata_json"),
+                ),
+            )
             "releaseMemory" -> {
                 go("ReleaseMemory")
                 null
