@@ -288,6 +288,49 @@ class GoBackendBridge {
     return _decodeRawMap(raw, 'editFileMetadata');
   }
 
+  /// Downloads a cover image to [outputPath] via Go's cover pipeline (shared
+  /// cache, singleflight, retries, max-quality candidate probing). Returns
+  /// the output path on success, or null when Go reported an error (or when
+  /// it returns no payload, which for this export means success).
+  Future<String?> downloadCoverToFile(
+    String coverUrl,
+    String outputPath, {
+    bool maxQuality = true,
+  }) async {
+    try {
+      final raw = await _call('downloadCoverToFile', {
+        'cover_url': coverUrl,
+        'output_path': outputPath,
+        'max_quality': maxQuality,
+      });
+      if (raw != null && raw.toString().isNotEmpty) {
+        final decoded = _decodeRawMap(raw, 'downloadCoverToFile');
+        if (decoded['success'] == false) return null;
+      }
+      return outputPath;
+    } on GoBackendCallException catch (e) {
+      debugPrint('[GoBackendBridge] downloadCoverToFile error: ${e.message}');
+      return null;
+    }
+  }
+
+  /// Extended Deezer metadata (genre/label/copyright) for a track, or null
+  /// when the lookup fails. Best-effort: callers treat null as "no data".
+  Future<Map<String, dynamic>?> getDeezerExtendedMetadata(
+    String trackId,
+  ) async {
+    try {
+      final raw = await _call('getDeezerExtendedMetadata', {
+        'track_id': trackId,
+      });
+      if (raw == null) return null;
+      return _decodeRawMap(raw, 'getDeezerExtendedMetadata');
+    } on GoBackendCallException catch (e) {
+      debugPrint('[GoBackendBridge] getDeezerExtendedMetadata error: ${e.message}');
+      return null;
+    }
+  }
+
   // ─── Extensions ─────────────────────────────────────────────────────────
 
   Future<Map<String, dynamic>> loadExtensionsFromDir(String dirPath) async {

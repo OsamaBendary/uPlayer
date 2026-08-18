@@ -275,8 +275,29 @@ class SearchResultTrack {
   /// 1-based track number within the album (from Deezer track_position).
   final int? trackNumber;
 
+  /// 1-based disc number within the album (from Deezer disk_number).
+  final int? discNumber;
+
+  /// Total tracks in the album (from Deezer nb_tracks).
+  final int? totalTracks;
+
+  /// Total discs in the album (from Deezer nb_disk).
+  final int? totalDiscs;
+
+  /// Full release date (e.g. "2019-05-17").
+  final String? releaseDate;
+
   /// Release year extracted from Deezer release_date (e.g. "2019-05-17" → "2019").
   final String? releaseYear;
+
+  /// ISRC (International Standard Recording Code) from Deezer.
+  final String? isrc;
+
+  /// Album artist (e.g. "Various Artists" for compilations).
+  final String? albumArtist;
+
+  /// Composer name from Deezer.
+  final String? composer;
 
   final String providerName;
 
@@ -293,7 +314,14 @@ class SearchResultTrack {
     this.downloadUrl,
     this.deezerTrackId,
     this.trackNumber,
+    this.discNumber,
+    this.totalTracks,
+    this.totalDiscs,
+    this.releaseDate,
     this.releaseYear,
+    this.isrc,
+    this.albumArtist,
+    this.composer,
     required this.providerName,
     this.qualityLabel = 'FLAC 16-bit',
   });
@@ -1115,13 +1143,22 @@ Future<List<ExtensionManifest>> fetchExtensionsFromRepo(String repoUrl) async {
         final data = jsonDecode(res.body);
         final albumTitle = data['title'] ?? 'Album';
         final artistName = data['artist']?['name'] ?? 'Unknown Artist';
+        final albumArtist = data['artist']?['name']?.toString();
         final cover = albumCoverUrl ?? data['cover_xl'] ?? data['cover_medium'];
+        final releaseDate =
+            (data['release_date']?.toString() ?? '').isNotEmpty
+                ? data['release_date'].toString()
+                : null;
         final releaseYear = _extractYear(data['release_date']);
+        final totalTracks = (data['nb_tracks'] as num?)?.toInt();
+        final totalDiscs = (data['nb_disk'] as num?)?.toInt();
         final items = (data['tracks']?['data'] ?? []) as List;
 
         for (final item in items) {
           // Deezer gives duration in seconds
           final durationSec = (item['duration'] ?? 0) as int;
+          final trackPosition = (item['track_position'] as num?)?.toInt();
+          final diskNumber = (item['disk_number'] as num?)?.toInt();
           tracks.add(SearchResultTrack(
             id: item['id'].toString(),
             name: item['title'] ?? 'Unknown',
@@ -1132,8 +1169,22 @@ Future<List<ExtensionManifest>> fetchExtensionsFromRepo(String repoUrl) async {
             // No download URL — resolved via Saavn at download time
             downloadUrl: null,
             deezerTrackId: item['id'].toString(),
-            trackNumber: item['track_position'] as int?,
+            trackNumber: trackPosition,
+            discNumber: diskNumber,
+            totalTracks: totalTracks,
+            totalDiscs: totalDiscs,
+            releaseDate: releaseDate,
             releaseYear: releaseYear,
+            isrc: item['isrc']?.toString(),
+            albumArtist: albumArtist,
+            composer: item['contributors'] is List &&
+                    (item['contributors'] as List).isNotEmpty
+                ? (item['contributors'] as List).firstWhere(
+                    (c) => c['role'] == 'composer',
+                    orElse: () => const {},
+                  )['name']
+                    ?.toString()
+                : null,
             providerName: 'FLAC Provider',
             qualityLabel: highestAvailableQualityLabel(),
           ));

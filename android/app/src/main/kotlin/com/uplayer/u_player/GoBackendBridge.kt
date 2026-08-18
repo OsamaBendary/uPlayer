@@ -130,6 +130,8 @@ class GoBackendBridge(private val context: Context) : MethodCallHandler {
         "resetDownloadCancel",
         "runPostProcessingV2",
         "editFileMetadata",
+        "downloadCoverToFile",
+        "getDeezerExtendedMetadata",
         "releaseMemory",
         "releaseMemoryUnderPressure",
         "cleanupConnections",
@@ -304,6 +306,20 @@ class GoBackendBridge(private val context: Context) : MethodCallHandler {
                     call.requireString("file_path"),
                     call.requireString("metadata_json"),
                 ),
+            )
+            "downloadCoverToFile" -> {
+                // Go's export returns only an error; on success the native
+                // call resolves to null (the Dart side treats that as ok).
+                go(
+                    "DownloadCoverToFile",
+                    call.requireString("cover_url"),
+                    call.requireString("output_path"),
+                    call.requireBool("max_quality"),
+                )
+                null
+            }
+            "getDeezerExtendedMetadata" -> jsonResult(
+                go("GetDeezerExtendedMetadata", call.requireString("track_id")),
             )
             "releaseMemory" -> {
                 go("ReleaseMemory")

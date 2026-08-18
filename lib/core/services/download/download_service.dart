@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -24,12 +25,23 @@ class DownloadTask {
   final String title;
   final String artist;
   final String album;
+
+  /// Album artist for the ALBUMARTIST tag (e.g. "Various Artists").
+  final String? albumArtist;
+
+  /// Full release date (e.g. "2019-05-17"); [releaseYear] is derived from it.
+  final String? releaseDate;
   final String? deezerTrackId;
   final String? coverUrl;
   final DownloadQuality quality;
   final String? downloadUrl;
   final int? trackNumber;
+  final int? discNumber;
+  final int? totalTracks;
+  final int? totalDiscs;
   final String? releaseYear;
+  final String? isrc;
+  final String? composer;
   final int durationMs;
 
   /// Provider-specific quality token picked for this download (e.g.
@@ -52,13 +64,20 @@ class DownloadTask {
     required this.title,
     required this.artist,
     required this.album,
+    this.albumArtist,
+    this.releaseDate,
     this.deezerTrackId,
     this.coverUrl,
     required this.quality,
     this.providerQualityId,
     this.downloadUrl,
     this.trackNumber,
+    this.discNumber,
+    this.totalTracks,
+    this.totalDiscs,
     this.releaseYear,
+    this.isrc,
+    this.composer,
     this.durationMs = 0,
     this.progress = 0.0,
     this.isCompleted = false,
@@ -87,6 +106,12 @@ class DownloadService {
 
   final Map<String, DownloadTask> activeDownloads = {};
   final ValueNotifier<int> activeDownloadCountNotifier = ValueNotifier<int>(0);
+
+  /// Album-wide cover cache (reference `_embedCoverCache`): one Go cover
+  /// download per artwork URL, shared across every track of a batch and
+  /// evicted LRU-style once the album is done.
+  static final Map<String, Future<String?>> _embedCoverCache =
+      <String, Future<String?>>{};
 
   Timer? _progressTimer;
   int _progressSeq = 0;
@@ -282,7 +307,14 @@ class DownloadService {
     String? deezerTrackId,
     String? coverUrl,
     int? trackNumber,
+    int? discNumber,
+    int? totalTracks,
+    int? totalDiscs,
     String? releaseYear,
+    String? releaseDate,
+    String? albumArtist,
+    String? isrc,
+    String? composer,
     int durationMs = 0,
     DownloadQualityChoice? qualityChoice,
     VoidCallback? onProgressUpdate,
@@ -309,13 +341,20 @@ class DownloadService {
       title: title,
       artist: artist,
       album: album,
+      albumArtist: albumArtist,
+      releaseDate: releaseDate,
       deezerTrackId: deezerTrackId,
       coverUrl: coverUrl,
       quality: targetChoice.appQuality ?? ExtensionService().selectedQuality,
       providerQualityId: targetChoice.providerQualityId,
       downloadUrl: downloadUrl,
       trackNumber: trackNumber,
+      discNumber: discNumber,
+      totalTracks: totalTracks,
+      totalDiscs: totalDiscs,
       releaseYear: releaseYear,
+      isrc: isrc,
+      composer: composer,
       durationMs: durationMs,
       onUpdate: onProgressUpdate,
     );
@@ -367,9 +406,10 @@ class DownloadService {
   }
 
   /// Builds the Go download request payload exactly like the reference
-  /// SpotiFLAC pipeline: output extension + container-conversion flags for
-  /// the selected provider, post-processing toggle, lyrics embedding mode
-  /// and the Tidal HIGH-quality lossy target format.
+  /// SpotiFLAC pipeline (`DownloadRequestPayload.toJson`): full metadata
+  /// fields, container-conversion flag for the selected provider,
+  /// post-processing toggle, lyrics embedding mode and the Tidal HIGH-quality
+  /// lossy target format.
   Map<String, dynamic> _buildGoDownloadRequest({
     required DownloadTask task,
     required String folderPath,
@@ -387,83 +427,110 @@ class DownloadService {
         : (extensionService.selectedProviderId ?? '');
     final outputExt = _determineOutputExt(quality, effectiveService);
 
+    var tidalId = '';
+    var qobuzId = '';
+    final rawTrackId = task.id.trim();
+    if (rawTrackId.startsWith('tidal:')) {
+      tidalId = rawTrackId.substring('tidal:'.length);
+    } else if (rawTrackId.startsWith('qobuz:')) {
+      qobuzId = rawTrackId.substring('qobuz:'.length);
+    }
+    final source = deezerTrackId != null ? 'deezer' : '';
+    final skipLyrics =
+        ExtensionService().skipLyricsFor(source, effectiveService);
+
     return <String, dynamic>{
       'contract_version': 1,
-      'isrc': '',
+      'isrc': task.isrc ?? '',
       'service': effectiveService,
       'spotify_id': '',
       'track_name': task.title,
       'artist_name': task.artist,
       'album_name': task.album,
-      'album_artist': '',
+      'album_artist': task.albumArtist ?? '',
       'cover_url': coverUrl ?? '',
       'output_dir': folderPath,
       'filename_format': goFilenameFormat,
       'quality': quality,
       'embed_metadata': true,
       'artist_tag_mode': 'joined',
-      'embed_lyrics': true,
+      'embed_lyrics': !skipLyrics,
       'embed_max_quality_cover': true,
       'embed_replaygain': false,
       'post_processing_enabled': extensionService.hasEnabledPostProcessing(),
       'tidal_high_format': 'mp3_320',
       'track_number': (trackNumber != null && trackNumber > 0) ? trackNumber : 0,
       'playlist_position': 0,
-      'disc_number': 0,
-      'total_tracks': 0,
-      'total_discs': 0,
-      'release_date': releaseYear ?? '',
+      'disc_number': (task.discNumber != null && task.discNumber! > 0)
+          ? task.discNumber!
+          : 0,
+      'total_tracks': (task.totalTracks != null && task.totalTracks! > 0)
+          ? task.totalTracks!
+          : 0,
+      'total_discs': (task.totalDiscs != null && task.totalDiscs! > 0)
+          ? task.totalDiscs!
+          : 0,
+      'release_date':
+          (task.releaseDate != null && task.releaseDate!.isNotEmpty)
+              ? task.releaseDate!
+              : (releaseYear ?? ''),
       'item_id': task.id,
       'duration_ms': durationMs,
-      'source': deezerTrackId != null ? 'deezer' : '',
+      'source': source,
       'genre': '',
       'label': '',
       'copyright': '',
-      'composer': '',
-      'tidal_id': '',
-      'qobuz_id': '',
+      'composer': task.composer ?? '',
+      'tidal_id': tidalId,
+      'qobuz_id': qobuzId,
       'deezer_id': deezerTrackId ?? '',
       'lyrics_mode': 'embed',
       'use_extensions': true,
       'use_fallback': true,
+      'storage_mode': 'app',
       'output_ext': outputExt,
       'requires_container_conversion':
-          extensionService.requiresNativeContainerConversionFor(service),
+          _shouldRequestContainerConversion(effectiveService, outputExt),
       'allow_quality_variant': false,
       'quality_variant': '',
+      'quality_variant_collision_only': false,
       'songlink_region': 'US',
     };
   }
 
-  /// Mirrors the reference `_determineOutputExt`, hardened so the quality
-  /// the user picked is the quality that gets written:
-  /// - Dolby/spatial tokens keep their native M4A container.
-  /// - Lossless tokens always ask for FLAC unless the serving extension
-  ///   must keep a native container (Dolby/DASH streams).
-  /// - MP3 tokens ask for MP3.
+  /// True when the extension serving [service] converts non-FLAC provider
+  /// streams to lossless itself, so the backend must be told to request the
+  /// FLAC container (reference `_shouldRequestContainerConversion`).
+  static bool _shouldRequestContainerConversion(
+    String service,
+    String outputExt,
+  ) {
+    return outputExt.trim().toLowerCase() == '.flac' &&
+        ExtensionService().requiresNativeContainerConversionFor(service);
+  }
+
+  /// Mirrors the reference `_determineOutputExt` exactly: the serving
+  /// extension's preferred output extension wins for every quality, Tidal
+  /// replacement providers keep the native M4A for HIGH quality, explicit
+  /// quality tokens (ALAC/AAC/Opus/MP3) map to their container, and
+  /// everything else defaults to FLAC. Dolby/spatial tokens are hardened to
+  /// keep their native M4A container (the reference relies on the serving
+  /// extension's preferred extension for those).
   String _determineOutputExt(String quality, String service) {
     final extensionService = ExtensionService();
-    final category = _qualityCategory(quality);
-    if (category == 'DOLBY') return '.m4a';
-    if (category == 'LOSSLESS') {
-      for (final ext in const ['.m4a', '.opus', '.mp3']) {
-        if (extensionService.preservesNativeOutputExtension(service, ext)) {
-          return ext;
-        }
-      }
-      return '.flac';
-    }
+    if (_qualityCategory(quality) == 'DOLBY') return '.m4a';
     final extensionPreferred =
         extensionService.preferredDownloadOutputExtensionFor(service);
     if (extensionPreferred != null) return extensionPreferred;
     if (extensionService.replacesBuiltInProvider(service, 'tidal') &&
-        category == 'HIGH') {
+        quality == 'HIGH') {
       return '.m4a';
     }
     final q = quality.toLowerCase();
     if (q == 'alac' || q.startsWith('aac')) return '.m4a';
     if (q.startsWith('opus')) return '.opus';
-    return '.mp3';
+    if (q.startsWith('mp3')) return '.mp3';
+    return '.flac';
   }
 
   /// Output extension implied by the Go result (explicit fields first, then
@@ -587,6 +654,16 @@ class DownloadService {
 
     await _preflightProviderVerification(effectiveService);
 
+    // Genre/label/copyright are only consumed at embed time, so the lookup
+    // overlaps with the download instead of delaying its start (reference
+    // `_loadExtendedMetadataForDeezerId`).
+    final extendedMetadataFuture = _loadExtendedMetadataForDeezerId(
+      deezerTrackId,
+    ).catchError((Object e) {
+      debugPrint('[DownloadService] Extended metadata lookup failed: $e');
+      return const <String, String>{};
+    });
+
     _goDownloadsActive = true;
     _ensureProgressPolling();
 
@@ -605,6 +682,7 @@ class DownloadService {
             requestedOutputExt: request['output_ext']?.toString() ?? '',
             service: response['service']?.toString() ?? '',
             deezerTrackId: deezerTrackId,
+            extendedMetadata: await extendedMetadataFuture,
           );
           if (finalizedPath == null) {
             task.hasFailed = true;
@@ -665,34 +743,77 @@ class DownloadService {
     required String requestedOutputExt,
     required String service,
     String? deezerTrackId,
+    Map<String, String> extendedMetadata = const <String, String>{},
   }) async {
-    if (response['native_finalized'] == true) {
-      return filePath;
-    }
-
-    final genre = response['genre'] as String?;
-    final label = response['label'] as String?;
-    final copyright = response['copyright'] as String?;
-
     var path = filePath;
+
+    // The extension that actually served the stream decides the format
+    // handling (reference `_applyFormatHandling(actualService)`); the
+    // requested service may differ — Go falls back through its priority list.
+    final actualService =
+        (response['service']?.toString() ?? service).trim().toLowerCase();
+
+    final resultOutputExt = _downloadResultOutputExt(response, filePath: path);
+    final resultAudioFormat = _normalizeAudioFormatValue(
+      response['audio_codec']?.toString() ??
+          response['actual_audio_codec']?.toString(),
+    );
+    final resultIsLossyAudio = _isLossyAudioFormat(resultAudioFormat);
+    final requiresContainerConversion =
+        response['requires_container_conversion'] == true ||
+            response['requiresContainerConversion'] == true ||
+            (!resultIsLossyAudio &&
+                _shouldRequestContainerConversion(actualService, requestedOutputExt));
+    final extensionService = ExtensionService();
+    final preferredOutputExt = extensionService
+        .preferredDownloadOutputExtensionFor(actualService)
+        ?.trim()
+        .toLowerCase();
+    final shouldPreserveNativeM4a = !requiresContainerConversion &&
+        (resultOutputExt == '.m4a' ||
+            resultOutputExt == '.mp4' ||
+            preferredOutputExt == '.m4a' ||
+            preferredOutputExt == '.mp4' ||
+            extensionService.preservesNativeOutputExtension(actualService, '.m4a') ||
+            extensionService.preservesNativeOutputExtension(actualService, '.mp4'));
+
+    final lowerPath = path.toLowerCase();
+    final isM4aFile = lowerPath.endsWith('.m4a') ||
+        lowerPath.endsWith('.mp4') ||
+        resultOutputExt == '.m4a' ||
+        resultOutputExt == '.mp4';
+
     final category = _qualityCategory(quality);
     if (category == 'HIGH' || category == 'MEDIUM') {
+      // Chosen-quality guarantee: any non-MP3 payload is transcoded to the
+      // MP3 bitrate the user picked (reference `_convertLocalM4aToLossy`,
+      // extended from HIGH-only to MEDIUM).
       final converted = await _finalizeLossyConversion(
         filePath: path,
         quality: category,
       );
       if (converted == null) return null;
       path = converted;
-    } else if (category == 'LOSSLESS') {
-      final converted = await _finalizeContainerConversion(
-        response: response,
-        filePath: path,
-        requestedOutputExt: requestedOutputExt,
-      );
-      if (converted == null) return null;
-      path = converted;
+    } else if (isM4aFile) {
+      if (shouldPreserveNativeM4a) {
+        // Decrypted/spatial M4A streams are already in their final format
+        // (reference `_preserveLocalNativeM4a`).
+        final preserved = await _preserveLocalNativeM4a(path);
+        if (preserved == null) return null;
+        path = preserved;
+      } else {
+        // Lossless pick that asked for FLAC but got an M4A container:
+        // probe and fix up (reference `_convertLocalM4aToFlac`).
+        final converted = await _finalizeM4aToFlac(
+          path,
+          requestedOutputExt: requestedOutputExt,
+        );
+        if (converted == null) return null;
+        path = converted;
+      }
     }
-    // DOLBY category: spatial M4A is preserved as-is.
+    // DOLBY category: spatial M4A is preserved as-is; FLAC/Opus/MP3 outputs
+    // for any category pass through untouched.
 
     final postProcessed = await _runPostProcessingHooks(
       path,
@@ -708,7 +829,9 @@ class DownloadService {
     // Metadata guarantee: whatever path the file took (provider wrote it
     // without tags, Go skipped the embed because the output already existed,
     // conversion dropped the tags, ...), the final file always leaves here
-    // with tags + cover (+ lyrics) freshly embedded.
+    // with tags + cover (+ lyrics) freshly embedded. The reference only
+    // embeds inside its conversion branches; embedding unconditionally also
+    // fixes its own gaps (e.g. Opus outputs and `.ogg` streams).
     final lowerFinal = path.toLowerCase();
     final String? resolvedExt;
     if (lowerFinal.endsWith('.flac')) {
@@ -717,6 +840,12 @@ class DownloadService {
       resolvedExt = '.mp3';
     } else if (lowerFinal.endsWith('.m4a') || lowerFinal.endsWith('.mp4')) {
       resolvedExt = '.m4a';
+    } else if (lowerFinal.endsWith('.opus') || lowerFinal.endsWith('.ogg')) {
+      resolvedExt = '.opus';
+    } else if (lowerFinal.endsWith('.aac')) {
+      // Go's tag writers cannot embed into raw AAC — matches the reference,
+      // which only supports flac/m4a/mp3/opus.
+      resolvedExt = null;
     } else {
       resolvedExt = _downloadResultOutputExt(response, filePath: path);
     }
@@ -724,6 +853,7 @@ class DownloadService {
       '.flac' => 'flac',
       '.m4a' => 'm4a',
       '.mp3' => 'mp3',
+      '.opus' => 'opus',
       _ => null,
     };
     if (format != null) {
@@ -731,9 +861,10 @@ class DownloadService {
         path,
         task,
         format: format,
-        genre: genre,
-        label: label,
-        copyright: copyright,
+        genre: response['genre']?.toString() ?? extendedMetadata['genre'],
+        label: response['label']?.toString() ?? extendedMetadata['label'],
+        copyright: response['copyright']?.toString() ??
+            extendedMetadata['copyright'],
         deezerTrackId: deezerTrackId,
       );
     }
@@ -777,85 +908,108 @@ class DownloadService {
     return filePath;
   }
 
-  /// Non-HIGH downloads that asked for FLAC but the provider stream is not
-  /// native FLAC get container-converted (reference
-  /// `_finalizeNativeWorkerContainerConversion`). Lossy payloads are
-  /// preserved as-is.
-  Future<String?> _finalizeContainerConversion({
-    required String filePath,
-    required Map<String, dynamic> response,
+  /// M4A/MP4 payloads that are kept as-is (reference
+  /// `_preserveLocalNativeM4a`): ensures the file carries the native M4A
+  /// extension and returns it unchanged. Metadata is embedded by the
+  /// unconditional final pass.
+  Future<String?> _preserveLocalNativeM4a(String filePath) async {
+    debugPrint('[DownloadService] M4A/MP4 file detected, preserving native container...');
+    try {
+      var targetPath = filePath;
+      final file = File(targetPath);
+      if (!await file.exists()) {
+        debugPrint('[DownloadService] File does not exist at path: $targetPath');
+        return filePath;
+      }
+      if (!(targetPath.toLowerCase().endsWith('.m4a') ||
+          targetPath.toLowerCase().endsWith('.mp4'))) {
+        final renamedPath = targetPath.replaceAll(RegExp(r'\.[^.]+$'), '.m4a');
+        final finalRenamedPath =
+            renamedPath == targetPath ? '$targetPath.m4a' : renamedPath;
+        await file.rename(finalRenamedPath);
+        targetPath = finalRenamedPath;
+      }
+      return targetPath;
+    } catch (e) {
+      debugPrint('[DownloadService] Native M4A handling failed: $e');
+      return filePath;
+    }
+  }
+
+  /// Lossless pick that asked for FLAC but landed in an M4A container
+  /// (reference `_convertLocalM4aToFlac`): probe the real codec and fix up —
+  /// lossy payloads are preserved, native FLAC payloads get the `.flac`
+  /// extension, anything else (ALAC etc.) is converted to FLAC.
+  Future<String?> _finalizeM4aToFlac(
+    String filePath, {
     required String requestedOutputExt,
   }) async {
-    if (requestedOutputExt != '.flac') return filePath;
-
-    final resultAudioFormat = _normalizeAudioFormatValue(
-      response['audio_codec']?.toString() ??
-          response['actual_audio_codec']?.toString(),
-    );
-    // A codec value of m4a/mp4 is container-only (it can hold ALAC);
-    // decide via the real codec probe below instead of preserving blindly.
-    if (resultAudioFormat != null &&
-        resultAudioFormat != 'm4a' &&
-        _isLossyAudioFormat(resultAudioFormat)) {
-      debugPrint('[DownloadService] Output is $resultAudioFormat; preserving native container.');
-      return filePath;
-    }
-    final requiresContainerConversion =
-        response['requires_container_conversion'] == true ||
-            response['requiresContainerConversion'] == true;
-    final resultOutputExt = _downloadResultOutputExt(response, filePath: filePath);
-    final lowerPath = filePath.toLowerCase();
-    final resultFileName = (response['file_name'] as String?)?.toLowerCase();
-    final mayNeedContainerConversion =
-        requiresContainerConversion ||
-        lowerPath.endsWith('.m4a') ||
-        lowerPath.endsWith('.mp4') ||
-        resultOutputExt == '.m4a' ||
-        resultOutputExt == '.mp4';
-    if (!mayNeedContainerConversion) return filePath;
-    final looksLikeM4a =
-        lowerPath.endsWith('.m4a') ||
-        lowerPath.endsWith('.mp4') ||
-        resultOutputExt == '.m4a' ||
-        resultOutputExt == '.mp4' ||
-        (resultFileName != null &&
-            (resultFileName.endsWith('.m4a') || resultFileName.endsWith('.mp4')));
-    if (!requiresContainerConversion && !looksLikeM4a) return filePath;
-
-    final codec = await FFmpegService.probePrimaryAudioCodec(filePath);
-    final isAlreadyNativeFlac =
-        codec == 'flac' && await FFmpegService.isNativeFlacFile(filePath);
-    if (!FFmpegService.isLosslessAudioCodec(codec)) {
-      debugPrint('[DownloadService] Preserving native container; audio codec is '
-          '${codec ?? 'unknown'} — no FLAC conversion needed.');
-      return filePath;
-    }
-    if (isAlreadyNativeFlac) {
-      var flacPath = filePath;
-      if (!filePath.toLowerCase().endsWith('.flac')) {
-        final renamedPath = filePath.replaceAll(RegExp(r'\.[^.]+$'), '.flac');
-        final targetPath = renamedPath == filePath ? '$filePath.flac' : renamedPath;
-        try {
-          await File(filePath).rename(targetPath);
-        } catch (e) {
-          debugPrint('[DownloadService] Native FLAC rename failed: $e');
-          return null;
-        }
-        flacPath = targetPath;
+    if (requestedOutputExt.trim().toLowerCase() != '.flac') return filePath;
+    debugPrint('[DownloadService] M4A file detected, attempting conversion to FLAC...');
+    try {
+      final file = File(filePath);
+      if (!await file.exists()) {
+        debugPrint('[DownloadService] File does not exist at path: $filePath');
+        return filePath;
       }
+      final length = await file.length();
+      if (length < 1024) {
+        debugPrint('[DownloadService] File too small (<1KB); skipping conversion.');
+        return filePath;
+      }
+      final codec = await FFmpegService.probePrimaryAudioCodec(filePath);
+      final isAlreadyNativeFlac =
+          codec == 'flac' && await FFmpegService.isNativeFlacFile(filePath);
+      if (!FFmpegService.isLosslessAudioCodec(codec)) {
+        debugPrint('[DownloadService] Preserving native container; audio codec is '
+            '${codec ?? 'unknown'} — no FLAC conversion needed.');
+        // The payload is lossy (e.g. AAC) but the file may carry the
+        // requested `.flac` name. Rename it to the real container so every
+        // album track's extension matches its actual content.
+        if (!filePath.toLowerCase().endsWith('.m4a') &&
+            !filePath.toLowerCase().endsWith('.mp4')) {
+          final renamedPath = filePath.replaceAll(RegExp(r'\.[^.]+$'), '.m4a');
+          final targetPath = renamedPath == filePath ? '$filePath.m4a' : renamedPath;
+          try {
+            await File(filePath).rename(targetPath);
+            return targetPath;
+          } catch (e) {
+            debugPrint('[DownloadService] Lossy payload rename to .m4a failed: $e');
+          }
+        }
+        return filePath;
+      }
+      if (isAlreadyNativeFlac) {
+        var flacPath = filePath;
+        if (!filePath.toLowerCase().endsWith('.flac')) {
+          final renamedPath = filePath.replaceAll(RegExp(r'\.[^.]+$'), '.flac');
+          final targetPath = renamedPath == filePath ? '$filePath.flac' : renamedPath;
+          try {
+            await File(filePath).rename(targetPath);
+          } catch (e) {
+            debugPrint('[DownloadService] Native FLAC rename failed: $e');
+            return null;
+          }
+          flacPath = targetPath;
+        }
+        return flacPath;
+      }
+      debugPrint('[DownloadService] Converting to FLAC: $filePath');
+      final flacPath = await FFmpegService.convertM4aToFlac(filePath);
+      if (flacPath == null) return null;
       return flacPath;
+    } catch (e) {
+      debugPrint('[DownloadService] M4A→FLAC handling failed: $e');
+      return null;
     }
-    debugPrint('[DownloadService] Converting to FLAC: $filePath');
-    final flacPath = await FFmpegService.convertM4aToFlac(filePath);
-    if (flacPath == null) return null;
-    return flacPath;
   }
 
   /// Embeds tags + cover + lyrics on [filePath] via the Go native tag
-  /// writers (reference `_embedMetadataToFile`). Used after conversions so
-  /// the tags the Go download already embedded survive the remux, and as the
-  /// unconditional final guarantee pass. Falls back to the Dart
-  /// TagEditorService when the Go tagger rejects the file.
+  /// writers (reference `_embedMetadataToFile`). Covers are fetched through
+  /// Go's `DownloadCoverToFile` pipeline (cache, retries, max-quality
+  /// probing) and shared across the batch via an LRU cache so an album only
+  /// downloads its artwork once. Falls back to the Dart TagEditorService
+  /// when the Go tagger rejects the file.
   Future<void> _embedMetadataToFile(
     String filePath,
     DownloadTask task, {
@@ -868,34 +1022,43 @@ class DownloadService {
     final isFlac = format == 'flac';
     final isM4a = format == 'm4a' || format == 'alac';
 
-    String coverPath = '';
-    try {
-      final coverBytes = await _resolveCoverBytes(
-        artist: task.artist,
-        title: task.title,
-        initialCoverUrl: task.coverUrl,
-        deezerTrackId: deezerTrackId,
-      );
-      if (coverBytes != null && coverBytes.isNotEmpty) {
-        final coverFile = File(
-          '${Directory.systemTemp.path}/uplayer_cover_${DateTime.now().microsecondsSinceEpoch}.jpg',
-        );
-        await coverFile.writeAsBytes(coverBytes, flush: true);
-        coverPath = coverFile.path;
+    final coverUrl = task.coverUrl?.trim();
+    var coverPath = '';
+    if (coverUrl != null && coverUrl.isNotEmpty) {
+      try {
+        final fetched = await _sharedEmbedCover(coverUrl);
+        if (fetched != null && await File(fetched).exists()) {
+          coverPath = fetched;
+        }
+      } catch (e) {
+        debugPrint('[DownloadService] Cover fetch failed: $e');
       }
-    } catch (e) {
-      debugPrint('[DownloadService] Cover fetch failed: $e');
     }
+
+    String formatIndexTag(int number, int? total) {
+      if (total != null && total > 0) return '$number/$total';
+      return number.toString();
+    }
+
+    final releaseDate = task.releaseDate?.isNotEmpty == true
+        ? task.releaseDate
+        : (task.releaseYear?.isNotEmpty == true ? task.releaseYear : null);
 
     final fields = <String, String>{
       'title': task.title,
       'artist': task.artist,
       'album': task.album,
       'artist_tag_mode': 'joined',
-      if (task.releaseYear != null && task.releaseYear!.isNotEmpty)
-        'date': task.releaseYear!,
+      if (task.albumArtist != null && task.albumArtist!.isNotEmpty)
+        'album_artist': task.albumArtist!,
       if (task.trackNumber != null && task.trackNumber! > 0)
-        'track_number': task.trackNumber!.toString(),
+        'track_number': formatIndexTag(task.trackNumber!, task.totalTracks),
+      if (task.discNumber != null && task.discNumber! > 0)
+        'disc_number': formatIndexTag(task.discNumber!, task.totalDiscs),
+      'date': ?releaseDate,
+      if (task.isrc != null && task.isrc!.isNotEmpty) 'isrc': task.isrc!,
+      if (task.composer != null && task.composer!.isNotEmpty)
+        'composer': task.composer!,
       if (genre != null && genre.isNotEmpty) 'genre': genre,
       if (label != null && label.isNotEmpty) 'label': label,
       if (copyright != null && copyright.isNotEmpty) 'copyright': copyright,
@@ -903,8 +1066,10 @@ class DownloadService {
     };
 
     final source = task.deezerTrackId != null ? 'deezer' : '';
-    final skipLyrics =
-        ExtensionService().skipLyricsFor(source, ExtensionService().selectedProviderId);
+    final skipLyrics = ExtensionService().skipLyricsFor(
+      source,
+      ExtensionService().selectedProviderId,
+    );
     if (!skipLyrics) {
       String? lyrics;
       try {
@@ -941,13 +1106,58 @@ class DownloadService {
       debugPrint('[DownloadService] Metadata embed failed: $e');
       await _fallbackTagEmbed(filePath, task, format,
           genre: genre, label: label, copyright: copyright);
-    } finally {
-      if (coverPath.isNotEmpty) {
-        try {
-          await File(coverPath).delete();
-        } catch (_) {}
-      }
     }
+  }
+
+  static const _embedCoverCacheMax = 8;
+
+  /// One cover fetch per URL, shared by every track in the batch — the Go
+  /// cover pipeline (cache/singleflight/retries/max-quality probing) then
+  /// only hits the network once per artwork (reference
+  /// `_sharedEmbedCover`/`_downloadEmbedCover`).
+  Future<String?> _sharedEmbedCover(String coverUrl) {
+    final existing = _embedCoverCache.remove(coverUrl);
+    if (existing != null) {
+      _embedCoverCache[coverUrl] = existing; // LRU touch
+      return existing;
+    }
+    final fetch = _downloadEmbedCover(coverUrl).then((path) {
+      if (path == null) _embedCoverCache.remove(coverUrl); // allow retry
+      return path;
+    });
+    _embedCoverCache[coverUrl] = fetch;
+    while (_embedCoverCache.length > _embedCoverCacheMax) {
+      _evictEmbedCover(_embedCoverCache.keys.first);
+    }
+    return fetch;
+  }
+
+  Future<String?> _downloadEmbedCover(String coverUrl) async {
+    final uniqueId =
+        '${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(10000)}';
+    final coverPath =
+        '${Directory.systemTemp.path}/cover_embed_$uniqueId.jpg';
+    // Go's cover pipeline: shared cache/singleflight, retries, timeouts,
+    // and max-quality candidate probing/upgrades.
+    final result = await GoBackendBridge.instance.downloadCoverToFile(
+      coverUrl,
+      coverPath,
+      maxQuality: true,
+    );
+    if (result == null || result.isEmpty) {
+      debugPrint('[DownloadService] Failed to download cover for embedding.');
+      return null;
+    }
+    return result;
+  }
+
+  void _evictEmbedCover(String coverUrl) {
+    final pending = _embedCoverCache.remove(coverUrl);
+    pending?.then((path) {
+      if (path != null) {
+        File(path).delete().catchError((_) => File(path));
+      }
+    });
   }
 
   Future<void> _fallbackTagEmbed(
@@ -971,7 +1181,10 @@ class DownloadService {
         title: task.title,
         artist: task.artist,
         album: task.album,
-        year: task.releaseYear ?? '',
+        year: (task.releaseDate?.isNotEmpty == true
+                ? task.releaseDate
+                : task.releaseYear) ??
+            '',
         genre: genre ?? '',
         trackNumber: task.trackNumber?.toString() ?? '',
         artworkBytes: coverBytes,
@@ -980,6 +1193,32 @@ class DownloadService {
           '"${task.title}": $ok (label=$label, copyright=$copyright)');
     } catch (e) {
       debugPrint('[DownloadService] Fallback tag embed failed ($format): $e');
+    }
+  }
+
+  /// Best-effort Deezer extended metadata (genre/label/copyright) fetched
+  /// through Go's `GetDeezerExtendedMetadata` — the reference fetches this
+  /// concurrently with the download so embed time never waits on it.
+  Future<Map<String, String>> _loadExtendedMetadataForDeezerId(
+    String? deezerTrackId,
+  ) async {
+    final trackId = deezerTrackId?.trim();
+    if (trackId == null || trackId.isEmpty) {
+      return const <String, String>{};
+    }
+    try {
+      final data = await GoBackendBridge.instance
+          .getDeezerExtendedMetadata(trackId);
+      if (data == null) return const <String, String>{};
+      final result = <String, String>{};
+      for (final key in const ['genre', 'label', 'copyright']) {
+        final value = data[key]?.toString().trim() ?? '';
+        if (value.isNotEmpty) result[key] = value;
+      }
+      return result;
+    } catch (e) {
+      debugPrint('[DownloadService] Extended metadata lookup failed: $e');
+      return const <String, String>{};
     }
   }
 
@@ -1627,11 +1866,18 @@ class DownloadService {
         title: track.name,
         artist: track.artist,
         album: track.album,
+        albumArtist: track.albumArtist,
+        releaseDate: track.releaseDate,
         downloadUrl: track.downloadUrl,
         deezerTrackId: track.deezerTrackId,
         coverUrl: track.coverUrl,
         trackNumber: track.trackNumber,
+        discNumber: track.discNumber,
+        totalTracks: track.totalTracks,
+        totalDiscs: track.totalDiscs,
         releaseYear: track.releaseYear,
+        isrc: track.isrc,
+        composer: track.composer,
         durationMs: track.durationMs,
         qualityChoice: qualityChoice,
         onProgressUpdate: onProgressUpdate,

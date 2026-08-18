@@ -31,6 +31,9 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
   // Guards the queue rebuild that pushes lazily-resolved artwork into the
   // notification's MediaItem tag (see _rebuildCurrentQueuePreservingPlayback).
   bool _isRebuildingQueue = false;
+  // Set while a rebuild is in flight so the next mutation (add/remove) is
+  // re-applied instead of being silently dropped by the guard above.
+  bool _rebuildPending = false;
 
   Timer? _stateSaveTimer;
   static const Duration _stateSaveInterval = Duration(seconds: 5);
@@ -337,7 +340,10 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   /// Appends a song to the end of the current queue. When nothing is loaded
-  /// yet it starts playback with just this song.
+  /// yet it starts playback with just this song. The player sequence is
+  /// rebuilt from `queue` (instead of incrementally appending to the audio
+  /// source) so the Dart queue and the player's playlist can never drift
+  /// apart — added songs always play when their turn comes.
   Future<void> addToQueue(SongModel song) async {
     await ensureInitialized();
     if (queue.isEmpty) {
@@ -346,15 +352,15 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
     }
     queue.add(song);
     queueIsWholeLibrary = false;
-    try {
-      await audioPlayer.addAudioSource(_audioSourceForSong(song));
-    } catch (e) {
-      debugPrint('[PlaybackController] addAudioSource error: $e');
-    }
+    await _rebuildCurrentQueuePreservingPlayback();
     notifyListeners();
   }
 
   /// Removes the song at [index] from the queue, keeping playback in sync.
+  /// The player sequence is rebuilt from `queue`, and when the removed song
+  /// was the one playing, playback continues with the next song instead of
+  /// stopping dead (removing the currently-playing source from a just_audio
+  /// playlist leaves the player idle).
   Future<void> removeFromQueue(int index) async {
     if (queue.isEmpty || index < 0 || index >= queue.length) return;
 
@@ -362,24 +368,24 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
 
     if (index < currentIndex) {
       currentIndex--;
-    } else if (index == currentIndex) {
-      _trackedSongId = null;
     }
-
-    if (audioPlayer.audioSources.isNotEmpty) {
-      try {
-        await audioPlayer.removeAudioSourceAt(
-          index.clamp(0, audioPlayer.audioSources.length - 1),
-        );
-      } catch (e) {
-        debugPrint('[PlaybackController] removeAudioSourceAt error: $e');
-      }
-    }
-
     if (queue.isEmpty) {
       currentIndex = 0;
+      _trackedSongId = null;
+      queueIsWholeLibrary = false;
+      try {
+        await audioPlayer.stop();
+      } catch (e) {
+        debugPrint('[PlaybackController] stop error: $e');
+      }
+      notifyListeners();
+      return;
+    }
+    if (currentIndex >= queue.length) {
+      currentIndex = queue.length - 1;
     }
     queueIsWholeLibrary = false;
+    await _rebuildCurrentQueuePreservingPlayback();
     notifyListeners();
   }
 
@@ -556,8 +562,15 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
 
   /// Rebuilds the queue with all currently-resolved artwork embedded in the
   /// MediaItem tags, preserving playback position and play/shuffle state.
+  /// Re-entrant-safe: a rebuild requested while one is already running is
+  /// re-applied right after, so concurrent add/remove operations always end
+  /// with the player sequence matching `queue`.
   Future<void> _rebuildCurrentQueuePreservingPlayback() async {
-    if (_isRebuildingQueue || queue.isEmpty) return;
+    if (_isRebuildingQueue) {
+      _rebuildPending = true;
+      return;
+    }
+    if (queue.isEmpty) return;
     _isRebuildingQueue = true;
     try {
       final playing = currentSong;
@@ -590,11 +603,16 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
       debugPrint('[PlaybackController] artwork queue rebuild error: $e');
     } finally {
       _isRebuildingQueue = false;
-      // Playback may have moved on while the rebuild was running; make sure
-      // the now-current track's artwork is pushed too.
-      final index = audioPlayer.currentIndex;
-      if (index != null && index >= 0 && index < queue.length) {
-        unawaited(_resolveAndPushArtwork(queue[index]));
+      if (_rebuildPending) {
+        _rebuildPending = false;
+        unawaited(_rebuildCurrentQueuePreservingPlayback());
+      } else {
+        // Playback may have moved on while the rebuild was running; make sure
+        // the now-current track's artwork is pushed too.
+        final index = audioPlayer.currentIndex;
+        if (index != null && index >= 0 && index < queue.length) {
+          unawaited(_resolveAndPushArtwork(queue[index]));
+        }
       }
     }
   }
