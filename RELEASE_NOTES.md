@@ -1,6 +1,27 @@
-# Release Notes — u_player v2.1.0
+# Release Notes — u_player v2.1.1
 
 ## What's New
+
+### Downloads
+* **Album Downloads Land in Their Own Folder**: When you download a whole album, every track now goes into a subfolder named after the album inside your download directory — no more song piles in the root. Single-track downloads still go straight to the root. The folder is created on the fly, so it works for every provider and both the Go and legacy download engines.
+
+### Album Ordering
+* **Correct Track Ordering in Albums**: Album tracklists (and the play queue they feed) now respect the real disc-then-track layout. Multi-disc albums keep disc 1 and disc 2 apart instead of interleaving (disc 2's track 1 no longer sorts next to disc 1's track 1).
+* **Untagged Tracks Sink to the Bottom**: Songs without track numbers used to jump to the top of an album; they now sort to the end, with a title-based fallback keeping the order deterministic.
+* Track/disc numbers are recovered straight from the files' tags during the library scan — cached per file and bounded, so startup stays fast — and automatically used by the library, artist, and album screens.
+
+---
+
+## Bug Fixes
+
+* **Queue vs. Player Drift**: Adding songs to the queue rebuilds the player's playlist from the queue, so the two can never fall out of sync — every queued song actually plays when its turn comes, including songs added mid-queue.
+* **Removing the Playing Song**: Removing the currently-playing song from the queue now continues playback with the next track instead of stopping dead (the old removal left the player idle).
+* **Concurrent Queue Edits**: Rapid add/remove operations are re-applied safely instead of being silently dropped.
+* **Honor / Magic OS Background Kills**: The app now requests battery-optimization and autostart exemptions once on first launch, so background playback survives aggressive OEM power management.
+
+---
+
+## v2.1.0
 
 ### Queue, Revamped
 * **Dedicated Queue Screen**: Open it from the mini player's queue button. See the whole playback list, tap any song to jump to it, and swipe a row left to remove it from the queue (the current song is highlighted).
