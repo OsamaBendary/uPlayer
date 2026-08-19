@@ -288,6 +288,20 @@ class GoBackendBridge {
     return _decodeRawMap(raw, 'editFileMetadata');
   }
 
+  /// Reads tags from an audio file via Go's native readers. Returns the
+  /// metadata map (title/artist/album/track_number/disc_number/...), or
+  /// null when the file can't be parsed. Used by the library to recover
+  /// disc/track numbers the MediaStore doesn't expose.
+  Future<Map<String, dynamic>?> readFileMetadata(String filePath) async {
+    try {
+      final raw = await _call('readFileMetadata', {'file_path': filePath});
+      if (raw == null) return null;
+      return _decodeRawMap(raw, 'readFileMetadata');
+    } on GoBackendCallException {
+      return null;
+    }
+  }
+
   /// Downloads a cover image to [outputPath] via Go's cover pipeline (shared
   /// cache, singleflight, retries, max-quality candidate probing). Returns
   /// the output path on success, or null when Go reported an error (or when

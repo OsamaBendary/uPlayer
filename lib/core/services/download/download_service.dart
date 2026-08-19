@@ -174,13 +174,16 @@ class DownloadService {
 
   Future<String> getDownloadDirectoryPath() async {
     final prefs = await SharedPreferences.getInstance();
-    final customPath = prefs.getString(_prefDownloadFolderKey);
-    if (customPath != null && customPath.isNotEmpty) {
-      return customPath;
+    var path = prefs.getString(_prefDownloadFolderKey);
+    if (path == null || path.isEmpty) {
+      path = await _defaultDownloadDirectoryPath();
     }
+    return path;
+  }
 
-    // Prefer the public Music/uPlayer folder when All files access is
-    // granted; otherwise fall back to the app-scoped dir (always writable).
+  /// Prefer the public Music/uPlayer folder when All files access is
+  /// granted; otherwise fall back to the app-scoped dir (always writable).
+  Future<String> _defaultDownloadDirectoryPath() async {
     if (await hasAllFilesAccess()) {
       return ensureMusicUPlayerFolder();
     }
@@ -196,6 +199,31 @@ class DownloadService {
       } catch (_) {}
     }
     return dir.path;
+  }
+
+  /// Resolves the folder a download lands in: the selected download
+  /// directory plus an album-named subfolder, so every album gets its own
+  /// folder instead of all tracks piling up in the root. Falls back to the
+  /// base directory when no usable album name exists.
+  Future<String> _resolveOutputFolder(String album) async {
+    final base = await getDownloadDirectoryPath();
+    final albumName = album.trim();
+    if (albumName.isEmpty ||
+        albumName == 'Unknown Album' ||
+        albumName == 'Single') {
+      return base;
+    }
+    final sanitized =
+        albumName.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
+    if (sanitized.isEmpty) return base;
+    final folder = '$base/$sanitized';
+    try {
+      await Directory(folder).create(recursive: true);
+    } catch (e) {
+      debugPrint('[DownloadService] Album folder creation failed: $e');
+      return base;
+    }
+    return folder;
   }
 
   Future<void> setDownloadDirectoryPath(String path) async {
@@ -627,11 +655,14 @@ class DownloadService {
     int durationMs = 0,
   }) async {
     final bridge = GoBackendBridge.instance;
-    final folderPath = await getDownloadDirectoryPath();
+    final baseFolder = await getDownloadDirectoryPath();
 
     try {
-      await bridge.setDownloadDirectory(folderPath);
+      // Global backend default stays at the selected directory; each request
+      // targets its own album subfolder via output_dir.
+      await bridge.setDownloadDirectory(baseFolder);
     } catch (_) {}
+    final folderPath = await _resolveOutputFolder(task.album);
 
     // Drop a stale cancelled flag from a previous attempt of this item.
     try {
@@ -1646,7 +1677,7 @@ class DownloadService {
         }
       }
 
-      final folderPath = await getDownloadDirectoryPath();
+      final folderPath = await _resolveOutputFolder(album);
       final sanitizedTitle = title.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
       final sanitizedArtist = artist.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
       const ext = 'mp3';

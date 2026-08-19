@@ -130,6 +130,7 @@ class GoBackendBridge(private val context: Context) : MethodCallHandler {
         "resetDownloadCancel",
         "runPostProcessingV2",
         "editFileMetadata",
+        "readFileMetadata",
         "downloadCoverToFile",
         "getDeezerExtendedMetadata",
         "releaseMemory",
@@ -305,6 +306,12 @@ class GoBackendBridge(private val context: Context) : MethodCallHandler {
                     "EditFileMetadata",
                     call.requireString("file_path"),
                     call.requireString("metadata_json"),
+                ),
+            )
+            "readFileMetadata" -> jsonResult(
+                go(
+                    "ReadFileMetadata",
+                    call.requireString("file_path"),
                 ),
             )
             "downloadCoverToFile" -> {
