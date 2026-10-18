@@ -6,6 +6,7 @@ import 'package:u_player/platform/audio_query_compat.dart';
 import 'package:u_player/modules/library/pages/library_nav_screen.dart';
 import 'package:u_player/modules/library/widgets/smart_artwork_widget.dart';
 import 'package:u_player/modules/player/pages/lyrics_screen.dart';
+import 'package:u_player/modules/player/mini_player/mini_player_service.dart';
 import 'package:u_player/modules/player/pages/player_screen.dart';
 import 'package:u_player/modules/player/widgets/desktop_controls.dart';
 
@@ -104,6 +105,21 @@ class DesktopShellBar extends StatelessWidget {
                       ),
                     ],
                   ),
+                ),
+              ),
+              ValueListenableBuilder<bool>(
+                valueListenable: MiniPlayerWindowService.instance.isEnabled,
+                builder: (context, miniPlayerOpen, _) => IconButton(
+                  tooltip: miniPlayerOpen
+                      ? 'Close mini player'
+                      : 'Mini player window',
+                  color: miniPlayerOpen ? Colors.greenAccent : Colors.white70,
+                  icon: const Icon(
+                    Icons.picture_in_picture_alt_rounded,
+                    size: 22,
+                  ),
+                  onPressed:
+                      song == null ? null : MiniPlayerWindowService.instance.toggle,
                 ),
               ),
               IconButton(

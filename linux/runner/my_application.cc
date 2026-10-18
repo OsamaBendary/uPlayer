@@ -6,6 +6,7 @@
 #endif
 
 #include "flutter/generated_plugin_registrant.h"
+#include "mini_player_window.h"
 
 // Method channel used to forward `uplayer://` / `spotiflac://` deep links
 // (provider verification pages) to Dart, which feeds them into the Go
@@ -87,8 +88,7 @@ static void deep_link_method_call_cb(FlMethodChannel* channel,
 }
 
 // Implements GApplication::activate.
-static void my_application_activate(GApplication* application) {
-  MyApplication* self = MY_APPLICATION(application);
+static void my_application_activate(GApplication* application) {  MyApplication* self = MY_APPLICATION(application);
 
   // Single-window app: a second activation just raises the existing window.
   if (self->window != nullptr) {
@@ -151,6 +151,14 @@ static void my_application_activate(GApplication* application) {
   g_object_add_weak_pointer(G_OBJECT(window),
                             reinterpret_cast<gpointer*>(&self->window));
 
+  // The mini player cannot outlive the window it is driven by. (Closing this
+  // window also ends the application, since it is its last one.)
+  g_signal_connect(window, "destroy",
+                   G_CALLBACK(+[](GtkWidget*, gpointer) {
+                     mini_player_window_shutdown();
+                   }),
+                   nullptr);
+
   g_autoptr(FlDartProject) project = fl_dart_project_new();
   fl_dart_project_set_dart_entrypoint_arguments(
       project, self->dart_entrypoint_arguments);
@@ -180,6 +188,10 @@ static void my_application_activate(GApplication* application) {
       kDeepLinkChannel, FL_METHOD_CODEC(codec));
   fl_method_channel_set_method_call_handler(
       self->deep_link_channel, deep_link_method_call_cb, self, nullptr);
+
+  // The desktop mini player lives in a second window with its own engine,
+  // brokered over its own method channel (see mini_player_window.cc).
+  mini_player_window_register(fl_view_get_engine(view), window);
 
   gtk_widget_grab_focus(GTK_WIDGET(view));
 }

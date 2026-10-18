@@ -24,6 +24,12 @@ class LyricsResult {
 }
 
 /// Fetches lyrics from Lrclib (https://lrclib.net) — a free, open,
+/// community-maintained lyrics API.
+///
+/// Results are cached in memory (including "we looked and found nothing"),
+/// and requests already on the wire are shared, so an always-visible lyrics
+/// pane, the full-screen view and repeated track switches don't refetch the
+/// same song over and over.
 class LyricsService {
   static const String _base = 'https://lrclib.net/api';
 
@@ -31,7 +37,61 @@ class LyricsService {
     'User-Agent': 'UPlayer/1.0.0 (https://github.com/yourname/u_player)',
   };
 
+  /// Roughly caps the cache; the oldest entry is dropped when it overflows.
+  static const int _maxCacheEntries = 128;
+
+  /// Keyed by track identity; a null value means "nothing was found".
+  static final Map<String, LyricsResult?> _cache = {};
+
+  /// Requests currently in flight, keyed the same way.
+  static final Map<String, Future<LyricsResult?>> _inFlight = {};
+
+  static String _cacheKey({
+    required String title,
+    required String artist,
+    String? album,
+    Duration? duration,
+  }) {
+    return '${title.toLowerCase()}\u0000${artist.toLowerCase()}'
+        '\u0000${(album ?? '').toLowerCase()}\u0000${duration?.inSeconds ?? 0}';
+  }
+
   Future<LyricsResult?> fetchLyrics({
+    required String title,
+    required String artist,
+    String? album,
+    Duration? duration,
+  }) {
+    final key = _cacheKey(
+      title: title,
+      artist: artist,
+      album: album,
+      duration: duration,
+    );
+
+    if (_cache.containsKey(key)) return Future.value(_cache[key]);
+
+    final pending = _inFlight[key];
+    if (pending != null) return pending;
+
+    final request = _fetch(
+      title: title,
+      artist: artist,
+      album: album,
+      duration: duration,
+    ).then((result) {
+      _cache[key] = result;
+      if (_cache.length > _maxCacheEntries) {
+        _cache.remove(_cache.keys.first);
+      }
+      return result;
+    }).whenComplete(() => _inFlight.remove(key));
+
+    _inFlight[key] = request;
+    return request;
+  }
+
+  Future<LyricsResult?> _fetch({
     required String title,
     required String artist,
     String? album,

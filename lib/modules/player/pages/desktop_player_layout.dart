@@ -5,17 +5,24 @@ import 'package:u_player/core/services/player/playback_controller.dart';
 import 'package:u_player/core/theme/dynamic_gradient_background/dynamic_gradient_background.dart';
 import 'package:u_player/modules/library/widgets/smart_artwork_widget.dart';
 import 'package:u_player/modules/library/widgets/song_options_dialog.dart';
-import 'package:u_player/modules/player/pages/lyrics_screen.dart';
+import 'package:u_player/modules/player/pages/widgets/lyrics_pane.dart';
 import 'package:u_player/modules/player/widgets/desktop_controls.dart';
 
-/// The Linux desktop player: artwork on the left half, the list that is
-/// playing (album, playlist or queue) on the right half, and its own
-/// transport bar — including lyrics and volume controls — under the list.
+/// The Linux desktop player: artwork on the left, the queue or the current
+/// track's lyrics on the right, and a full-width transport bar underneath.
+///
+/// The right pane carries a `Queue | Lyrics` switch and opens on the lyrics,
+/// so the words are on screen as soon as the player does while the artwork
+/// keeps the whole left half of the window. A mid-sized window still fits
+/// both panes; below [_splitWidth] they stack the way the phone layout does.
 ///
 /// The phone player stays single-column and gesture-driven; this layout is
 /// used only when `isLinuxDesktop` is true.
 class DesktopPlayerLayout extends StatelessWidget {
   const DesktopPlayerLayout({super.key});
+
+  /// Below this width artwork and the right pane stop sitting side by side.
+  static const double _splitWidth = 880;
 
   @override
   Widget build(BuildContext context) {
@@ -44,24 +51,12 @@ class DesktopPlayerLayout extends StatelessWidget {
             child: SafeArea(
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  // Half and half while there is room for it; stacked
-                  // artwork-over-list when the window is squeezed narrow.
-                  final isWide = constraints.maxWidth >= 880;
-                  final artworkPane = _ArtworkPane(song: song);
-                  final listPane = _PlayingListPane(song: song);
-
-                  if (isWide) {
-                    return Row(
-                      children: [
-                        Expanded(child: artworkPane),
-                        Expanded(child: listPane),
-                      ],
-                    );
-                  }
                   return Column(
                     children: [
-                      Expanded(flex: 5, child: artworkPane),
-                      Expanded(flex: 6, child: listPane),
+                      Expanded(
+                        child: _panes(constraints.maxWidth, song),
+                      ),
+                      const _PlayerTransportBar(),
                     ],
                   );
                 },
@@ -72,9 +67,31 @@ class DesktopPlayerLayout extends StatelessWidget {
       },
     );
   }
+
+  Widget _panes(double width, SongModel song) {
+    final artworkPane = _ArtworkPane(song: song);
+    final rightPane = _RightPane(song: song);
+
+    if (width >= _splitWidth) {
+      return Row(
+        children: [
+          Expanded(child: artworkPane),
+          Expanded(child: rightPane),
+        ],
+      );
+    }
+
+    return Column(
+      children: [
+        Expanded(flex: 5, child: artworkPane),
+        Expanded(flex: 6, child: rightPane),
+      ],
+    );
+  }
 }
 
-/// Large square artwork, centred in its half of the window.
+/// Large square artwork, centred in its pane, with the playing track's
+/// title and artist underneath when there is room for them.
 class _ArtworkPane extends StatelessWidget {
   final SongModel song;
 
@@ -84,60 +101,69 @@ class _ArtworkPane extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final side = (constraints.biggest.shortestSide * 0.82).clamp(120.0, 640.0);
+        // Size the artwork from the pane's width and let FittedBox shrink the
+        // whole block when the pane is too short for it — a pane that is
+        // squeezed in either direction loses size instead of overflowing.
+        final side = (constraints.maxWidth * 0.82).clamp(64.0, 640.0);
+        final showText = constraints.maxHeight >= 200;
+
         return Center(
           child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.45),
-                        blurRadius: 40,
-                        offset: const Offset(0, 18),
-                      ),
-                    ],
-                  ),
-                  child: SmartArtworkWidget(
-                    song: song,
-                    width: side,
-                    height: side,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                ),
-                const SizedBox(height: 22),
-                ConstrainedBox(
-                  constraints: BoxConstraints(maxWidth: side),
-                  child: Column(
-                    children: [
-                      Text(
-                        song.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
+            padding: const EdgeInsets.all(16),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.45),
+                          blurRadius: 40,
+                          offset: const Offset(0, 18),
                         ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        song.artist ?? 'Unknown Artist',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: Colors.white70, fontSize: 14),
-                      ),
-                    ],
+                      ],
+                    ),
+                    child: SmartArtworkWidget(
+                      song: song,
+                      width: side,
+                      height: side,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
                   ),
-                ),
-              ],
+                  if (showText) ...[
+                    const SizedBox(height: 22),
+                    ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: side),
+                      child: Column(
+                        children: [
+                          Text(
+                            song.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            song.artist ?? 'Unknown Artist',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: Colors.white70, fontSize: 14),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ),
           ),
         );
@@ -146,35 +172,34 @@ class _ArtworkPane extends StatelessWidget {
   }
 }
 
-/// Album header + the tracks that are playing + the transport bar.
-class _PlayingListPane extends StatelessWidget {
+/// What the right-hand pane shows. The choice is session-only: opening the
+/// player always starts on the lyrics.
+enum _PaneTab { queue, lyrics }
+
+/// The player's right-hand pane: the queue or the current track's lyrics,
+/// behind a small Queue | Lyrics switch. The header follows the selection —
+/// the album with its totals for the queue, the track for the lyrics — and
+/// the transport lives in the bar under the panes, so the pane gets the
+/// window's full height.
+class _RightPane extends StatefulWidget {
   final SongModel song;
 
-  const _PlayingListPane({required this.song});
+  const _RightPane({required this.song});
 
-  void _openLyrics(BuildContext context, SongModel song) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => LyricsScreen(
-          song: song,
-          heroTag: 'desktop-lyrics-${song.id}',
-          positionStream: PlaybackController.instance.audioPlayer.positionStream,
-        ),
-      ),
-    );
-  }
+  @override
+  State<_RightPane> createState() => _RightPaneState();
+}
+
+class _RightPaneState extends State<_RightPane> {
+  _PaneTab _tab = _PaneTab.lyrics;
 
   @override
   Widget build(BuildContext context) {
-    final controller = PlaybackController.instance;
-    final queue = controller.queue;
-    final totalDuration = queue.fold<Duration>(
-      Duration.zero,
-      (sum, s) => sum + Duration(milliseconds: s.duration ?? 0),
-    );
+    final song = widget.song;
+    final queue = PlaybackController.instance.queue;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 14, 18, 16),
+      padding: const EdgeInsets.fromLTRB(4, 14, 18, 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -187,64 +212,130 @@ class _PlayingListPane extends StatelessWidget {
                   icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 26),
                   onPressed: () => Navigator.of(context).maybePop(),
                 ),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      song.album ?? song.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '${song.artist ?? 'Unknown Artist'} • '
-                      '${queue.length} ${queue.length == 1 ? 'track' : 'tracks'} • '
-                      '${formatDuration(totalDuration)}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white60, fontSize: 13),
-                    ),
-                  ],
-                ),
-              ),
+              Expanded(child: _header(song, queue)),
+              const SizedBox(width: 8),
+              _switch(),
             ],
           ),
           const SizedBox(height: 10),
-          Expanded(child: _QueueList(queue: queue)),
-          const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.06),
-              borderRadius: BorderRadius.circular(18),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const SeekBarRow(),
-                Row(
-                  children: [
-                    const TransportButtons(),
-                    const Spacer(),
-                    IconButton(
-                      tooltip: 'Lyrics',
-                      color: Colors.white70,
-                      icon: const Icon(Icons.lyrics_rounded),
-                      onPressed: () => _openLyrics(context, song),
-                    ),
-                    const VolumeControl(),
-                  ],
-                ),
-              ],
-            ),
+          Expanded(
+            child: _tab == _PaneTab.queue
+                ? _QueueView(queue: queue)
+                : LyricsPane(song: song),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _header(SongModel song, List<SongModel> queue) {
+    final isQueue = _tab == _PaneTab.queue;
+    final totalDuration = queue.fold<Duration>(
+      Duration.zero,
+      (sum, s) => sum + Duration(milliseconds: s.duration ?? 0),
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          isQueue ? (song.album ?? song.title) : song.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          isQueue
+              ? '${song.artist ?? 'Unknown Artist'} • '
+                    '${queue.length} ${queue.length == 1 ? 'track' : 'tracks'} • '
+                    '${formatDuration(totalDuration)}'
+              : '${song.artist ?? 'Unknown Artist'} • '
+                    '${song.album ?? 'Unknown Album'}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(color: Colors.white60, fontSize: 13),
+        ),
+      ],
+    );
+  }
+
+  /// The two-slot pill that swaps the pane's contents.
+  Widget _switch() {
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _switchTab('Queue', _PaneTab.queue),
+          _switchTab('Lyrics', _PaneTab.lyrics),
+        ],
+      ),
+    );
+  }
+
+  Widget _switchTab(String label, _PaneTab tab) {
+    final isSelected = tab == _tab;
+
+    return Material(
+      color: isSelected ? Colors.white.withValues(alpha: 0.14) : Colors.transparent,
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: () => setState(() => _tab = tab),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: isSelected ? Colors.white : Colors.white54,
+              fontSize: 12.5,
+              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The player's own transport bar, spanning the full window under the panes:
+/// seek, transport, repeat and volume.
+class _PlayerTransportBar extends StatelessWidget {
+  const _PlayerTransportBar();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SeekBarRow(),
+            const Row(
+              children: [
+                TransportButtons(),
+                Spacer(),
+                VolumeControl(),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -252,10 +343,10 @@ class _PlayingListPane extends StatelessWidget {
 
 /// The playing list with a header row (#, title, duration) like a desktop
 /// music player's track table.
-class _QueueList extends StatelessWidget {
+class _QueueView extends StatelessWidget {
   final List<SongModel> queue;
 
-  const _QueueList({required this.queue});
+  const _QueueView({required this.queue});
 
   @override
   Widget build(BuildContext context) {
@@ -375,3 +466,4 @@ class _QueueRow extends StatelessWidget {
     );
   }
 }
+

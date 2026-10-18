@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:u_player/platform/audio_query_compat.dart';
 import 'package:u_player/core/models/library_group.dart';
@@ -7,10 +9,23 @@ import 'package:u_player/modules/library/widgets/song_options_dialog.dart';
 import 'package:u_player/modules/library/widgets/smart_artwork_widget.dart';
 import 'package:u_player/modules/player/widgets/desktop_controls.dart';
 
+/// Tile metrics of the album grid. The grid is laid out by hand instead of
+/// with a [GridView] so that one album can expand into a run of cells with
+/// the remaining tiles packing around it.
+const double _tileHeight = 196;
+const double _tileSpacing = 12;
+const double _tileMaxWidth = 160;
+const double _gridHorizontalPadding = 16;
+
+/// Columns an expanded album spans (clamped when the window is too narrow).
+const int _blockColumns = 3;
+
 /// The Linux desktop library: a group list on the left (genres or artists),
-/// an album grid in the middle, and the selected album's tracks in a panel
-/// along the bottom — the shape a wide window wants, instead of the phone's
-/// two-column grid + full-screen drill-down.
+/// an album grid in the middle. Clicking an album expands it in place into a
+/// 3x1 run of grid cells — artwork filling the left side, its tracklist on
+/// the right — while the surrounding tiles reflow around it like a masonry
+/// layout. Clicking the artwork (or the card's close button) collapses it
+/// back into a tile.
 class DesktopLibraryLayout extends StatefulWidget {
   final List<SongModel> songs;
   final bool isLoading;
@@ -27,6 +42,8 @@ class DesktopLibraryLayout extends StatefulWidget {
 
 enum _GroupMode { genres, artists }
 
+String _albumKey(AlbumGroup album) => '${album.name}\u0000${album.artist}';
+
 class _DesktopLibraryLayoutState extends State<DesktopLibraryLayout> {
   final PlaybackController _controller = PlaybackController.instance;
   final TextEditingController _searchController = TextEditingController();
@@ -37,8 +54,8 @@ class _DesktopLibraryLayoutState extends State<DesktopLibraryLayout> {
   /// Selected sidebar entry; null = "All songs".
   String? _selectedGroup;
 
-  /// 'album\u0000artist' of the album whose tracks are shown in the bottom
-  /// panel. null = follow whatever is playing.
+  /// 'album\u0000artist' of the album expanded into a grid block.
+  /// null = nothing is expanded.
   String? _selectedAlbumKey;
 
   String _query = '';
@@ -137,42 +154,21 @@ class _DesktopLibraryLayoutState extends State<DesktopLibraryLayout> {
     return entries;
   }
 
-  AlbumGroup? _resolveSelectedAlbum(List<AlbumGroup> albums) {
-    if (albums.isEmpty) return null;
-
-    final key = _selectedAlbumKey;
-    if (key != null) {
-      for (final album in albums) {
-        if ('${album.name}\u0000${album.artist}' == key) return album;
-      }
-    }
-
-    // Nothing picked (or the pick scrolled out of the current filter): show
-    // what is playing, so the bottom panel is useful the moment music
-    // starts — which is what the panel is for.
-    final playing = _controller.currentSong;
-    if (playing != null) {
-      for (final album in albums) {
-        if (album.name == (playing.album ?? '') && album.artist == (playing.artist ?? '')) {
-          return album;
-        }
-      }
-    }
-    return albums.first;
-  }
-
   Future<void> _play(AlbumGroup album, int index) async {
     // Queue the whole album (like the phone's album screen does) starting at
     // the tapped track, so "next" walks the album instead of the library.
     await _controller.playQueue(album.songs, startIndex: index);
   }
 
+  /// Expands the album's block in the grid; tapping the expanded album again
+  /// collapses it back into its tile.
   void _selectAlbum(AlbumGroup album) {
-    setState(() => _selectedAlbumKey = '${album.name}\u0000${album.artist}');
+    final key = _albumKey(album);
+    setState(() => _selectedAlbumKey = _selectedAlbumKey == key ? null : key);
   }
 
-  /// The playing track may sit in a queue that is not the album shown in the
-  /// panel, so every row compares against the live queue position.
+  /// The playing track may sit in a queue that is not the album expanded in
+  /// the grid, so every row compares against the live queue position.
   bool _isRowPlaying(SongModel song) {
     final current = _controller.currentSong;
     return current != null && current.id == song.id;
@@ -197,7 +193,6 @@ class _DesktopLibraryLayoutState extends State<DesktopLibraryLayout> {
     }
 
     final albums = _cachedAlbums;
-    final selectedAlbum = _resolveSelectedAlbum(albums);
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -245,24 +240,13 @@ class _DesktopLibraryLayoutState extends State<DesktopLibraryLayout> {
                                       style: TextStyle(color: Colors.white54),
                                     ),
                                   )
-                                : LayoutBuilder(
-                                    builder: (context, constraints) {
-                                      // The track panel keeps a fixed share of
-                                      // the height so the grid stays the
-                                      // focus on tall windows but still
-                                      // leaves the panel usable on short
-                                      // ones.
-                                      return _LibraryBody(
-                                        albums: albums,
-                                        panelHeight: (constraints.maxHeight * 0.40)
-                                            .clamp(190.0, 280.0),
-                                        selectedAlbum: selectedAlbum,
-                                        playingAlbumName: _controller.currentSong?.album,
-                                        onSelect: _selectAlbum,
-                                        onPlay: _play,
-                                        isRowPlaying: _isRowPlaying,
-                                      );
-                                    },
+                                : _AlbumGridView(
+                                    albums: albums,
+                                    selectedKey: _selectedAlbumKey,
+                                    playingAlbumName: _controller.currentSong?.album,
+                                    onSelect: _selectAlbum,
+                                    onPlay: _play,
+                                    isRowPlaying: _isRowPlaying,
                                   ),
                           ),
                         ],
@@ -279,21 +263,120 @@ class _DesktopLibraryLayoutState extends State<DesktopLibraryLayout> {
   }
 }
 
-/// Album grid on top, the selected album's tracks underneath — the middle
-/// column of the desktop library.
-class _LibraryBody extends StatelessWidget {
+/// One positioned piece of a grid band: either an album tile or the expanded
+/// album's card (which spans [_blockColumns] columns of one row).
+class _BandItem {
+  final AlbumGroup album;
+  final int col;
+  final int colSpan;
+  final bool isBlock;
+
+  const _BandItem({
+    required this.album,
+    required this.col,
+    this.colSpan = 1,
+    this.isBlock = false,
+  });
+}
+
+/// One row of the album grid. Rows are the unit of lazy building — everything
+/// outside the visible rows is never laid out.
+class _GridBand {
+  final List<_BandItem> items;
+  final AlbumGroup? blockAlbum;
+
+  const _GridBand({required this.items, this.blockAlbum});
+}
+
+/// Lays [albums] out row by row. When [selectedKey] names one of them, that
+/// album expands into a [_blockColumns]-wide card in its own grid row and the
+/// other albums are re-packed row-major into the cells left free around it —
+/// so the neighbourhood reflows instead of leaving a wide hole.
+List<_GridBand> _buildBands(
+  List<AlbumGroup> albums,
+  int columns,
+  String? selectedKey,
+) {
+  final bands = <_GridBand>[];
+  if (albums.isEmpty || columns <= 0) return bands;
+
+  var blockIndex = -1;
+  if (selectedKey != null) {
+    for (var i = 0; i < albums.length; i++) {
+      if (_albumKey(albums[i]) == selectedKey) {
+        blockIndex = i;
+        break;
+      }
+    }
+  }
+
+  final blockCols = math.min(_blockColumns, columns);
+  final blockRow = blockIndex >= 0 ? blockIndex ~/ columns : -1;
+  // The card keeps its own column when the row has room for it, and slides
+  // left when it does not (albums clicked in the last columns of a row).
+  final blockCol = blockIndex >= 0
+      ? math.min(blockIndex % columns, columns - blockCols)
+      : -1;
+
+  var next = 0;
+  AlbumGroup? takeAlbum() {
+    while (next < albums.length && next == blockIndex) {
+      next++;
+    }
+    if (next >= albums.length) return null;
+    return albums[next++];
+  }
+
+  for (var row = 0;; row++) {
+    if (row == blockRow) {
+      final items = <_BandItem>[];
+
+      // Fill the cells the card leaves free in its own row.
+      for (var col = 0; col < columns; col++) {
+        if (col >= blockCol && col < blockCol + blockCols) continue;
+        final album = takeAlbum();
+        if (album == null) break;
+        items.add(_BandItem(album: album, col: col));
+      }
+      final blockAlbum = albums[blockIndex];
+      items.add(_BandItem(
+        album: blockAlbum,
+        col: blockCol,
+        colSpan: blockCols,
+        isBlock: true,
+      ));
+
+      bands.add(_GridBand(items: items, blockAlbum: blockAlbum));
+      continue;
+    }
+
+    final items = <_BandItem>[];
+    for (var col = 0; col < columns; col++) {
+      final album = takeAlbum();
+      if (album == null) break;
+      items.add(_BandItem(album: album, col: col));
+    }
+    if (items.isEmpty) break;
+    bands.add(_GridBand(items: items));
+  }
+
+  return bands;
+}
+
+/// The album grid. Tiles are laid out band by band inside a lazy
+/// [SliverList], so a big library stays cheap to scroll — only the bands on
+/// screen are built, even while an album is expanded.
+class _AlbumGridView extends StatefulWidget {
   final List<AlbumGroup> albums;
-  final double panelHeight;
-  final AlbumGroup? selectedAlbum;
+  final String? selectedKey;
   final String? playingAlbumName;
   final ValueChanged<AlbumGroup> onSelect;
   final void Function(AlbumGroup album, int index) onPlay;
   final bool Function(SongModel song) isRowPlaying;
 
-  const _LibraryBody({
+  const _AlbumGridView({
     required this.albums,
-    required this.panelHeight,
-    required this.selectedAlbum,
+    required this.selectedKey,
     required this.playingAlbumName,
     required this.onSelect,
     required this.onPlay,
@@ -301,32 +384,389 @@ class _LibraryBody extends StatelessWidget {
   });
 
   @override
+  State<_AlbumGridView> createState() => _AlbumGridViewState();
+}
+
+class _AlbumGridViewState extends State<_AlbumGridView> {
+  final ScrollController _scrollController = ScrollController();
+
+  int _columns = 1;
+  int? _pendingScrollRow;
+
+  @override
+  void didUpdateWidget(covariant _AlbumGridView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // A freshly expanded album is brought into view after it has been laid
+    // out; collapsing (key -> null) never moves the scroll position.
+    if (widget.selectedKey != null && widget.selectedKey != oldWidget.selectedKey) {
+      _pendingScrollRow = _rowForSelection();
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToPending());
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  int? _rowForSelection() {
+    final key = widget.selectedKey;
+    if (key == null || _columns <= 0) return null;
+    final index = widget.albums.indexWhere((album) => _albumKey(album) == key);
+    if (index < 0) return null;
+    return index ~/ _columns;
+  }
+
+  void _scrollToPending() {
+    final row = _pendingScrollRow;
+    _pendingScrollRow = null;
+    if (row == null || !_scrollController.hasClients) return;
+
+    final blockTop = row * (_tileHeight + _tileSpacing);
+    final blockHeight = _tileHeight;
+    final position = _scrollController.position;
+    final viewport = position.viewportDimension;
+
+    // Tapping a tile that is already on screen should not move the grid.
+    if (blockTop >= position.pixels &&
+        blockTop + blockHeight <= position.pixels + viewport) {
+      return;
+    }
+
+    final target = (blockTop - (viewport - blockHeight) / 2)
+        .clamp(0.0, position.maxScrollExtent);
+    _scrollController.animateTo(
+      target,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Expanded(
-          child: _AlbumGrid(
-            albums: albums,
-            selectedKey: selectedAlbum == null
-                ? null
-                : '${selectedAlbum!.name}\u0000${selectedAlbum!.artist}',
-            playingAlbumName: playingAlbumName,
-            onSelect: onSelect,
-            onPlay: (album) => onPlay(album, 0),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // The same column math the old SliverGridDelegateWithMaxCrossAxisExtent
+        // performed, kept explicit because the expanded album needs to know
+        // exactly which cells it covers.
+        final available =
+            math.max(0.0, constraints.maxWidth - _gridHorizontalPadding * 2);
+        _columns = math.max(1, (available / (_tileMaxWidth + _tileSpacing)).ceil());
+        final tileWidth = available <= 0
+            ? _tileMaxWidth
+            : (available - (_columns - 1) * _tileSpacing) / _columns;
+
+        final bands = _buildBands(widget.albums, _columns, widget.selectedKey);
+
+        return CustomScrollView(
+          controller: _scrollController,
+          slivers: [
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(
+                _gridHorizontalPadding,
+                0,
+                _gridHorizontalPadding,
+                14,
+              ),
+              sliver: SliverList.builder(
+                itemCount: bands.length,
+                itemBuilder: (context, index) {
+                  final band = bands[index];
+                  final blockAlbum = band.blockAlbum;
+                  return _AlbumBand(
+                    band: band,
+                    tileWidth: tileWidth,
+                    playingAlbumName: widget.playingAlbumName,
+                    onSelect: widget.onSelect,
+                    onPlay: widget.onPlay,
+                    isRowPlaying: widget.isRowPlaying,
+                    onCollapse: blockAlbum == null
+                        ? null
+                        : () => widget.onSelect(blockAlbum),
+                  );
+                },
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// One row of the grid, rendered as an explicitly positioned stack so the
+/// expanded card can span several cells of a single row.
+class _AlbumBand extends StatelessWidget {
+  final _GridBand band;
+  final double tileWidth;
+  final String? playingAlbumName;
+  final ValueChanged<AlbumGroup> onSelect;
+  final void Function(AlbumGroup album, int index) onPlay;
+  final bool Function(SongModel song) isRowPlaying;
+  final VoidCallback? onCollapse;
+
+  const _AlbumBand({
+    required this.band,
+    required this.tileWidth,
+    required this.playingAlbumName,
+    required this.onSelect,
+    required this.onPlay,
+    required this.isRowPlaying,
+    required this.onCollapse,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      // The row is one tile tall plus the spacing that separates it from the
+      // next one; the tiles inside sit at its top.
+      height: _tileHeight + _tileSpacing,
+      child: Stack(
+        children: [
+          for (final item in band.items)
+            Positioned(
+              // Stable per-album keys so the tiles that merely reflow around
+              // an expanding card keep their element (and artwork) instead
+              // of being matched by position.
+              key: ValueKey(_albumKey(item.album)),
+              left: item.col * (tileWidth + _tileSpacing),
+              width: item.colSpan * tileWidth + (item.colSpan - 1) * _tileSpacing,
+              height: _tileHeight,
+              child: item.isBlock
+                  ? _AlbumBlock(
+                      album: item.album,
+                      isRowPlaying: isRowPlaying,
+                      onPlay: onPlay,
+                      onCollapse: onCollapse,
+                    )
+                  : _AlbumTile(
+                      album: item.album,
+                      isPlaying: item.album.name == playingAlbumName,
+                      onTap: () => onSelect(item.album),
+                      onDoubleTap: () => onPlay(item.album, 0),
+                    ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The expanded album: the artwork fills the whole left side of the card and
+/// the album's details sit beside it on the right — the desktop player's
+/// shape, inline in the grid where the album's tile used to be. Clicking the
+/// artwork (or the ✕) collapses the card back into its tile.
+class _AlbumBlock extends StatelessWidget {
+  final AlbumGroup album;
+  final bool Function(SongModel song) isRowPlaying;
+  final void Function(AlbumGroup album, int index) onPlay;
+  final VoidCallback? onCollapse;
+
+  const _AlbumBlock({
+    required this.album,
+    required this.isRowPlaying,
+    required this.onPlay,
+    required this.onCollapse,
+  });
+
+  /// Release year as printed on the first track that carries one.
+  String? _year() {
+    for (final song in album.songs) {
+      final releaseDate = (song.linuxScan?['releaseDate'] ?? '').toString();
+      if (releaseDate.length >= 4) {
+        final year = releaseDate.substring(0, 4);
+        if (int.tryParse(year) != null) return year;
+      }
+    }
+    return null;
+  }
+
+  String _meta() {
+    final year = _year();
+    return [
+      album.artist,
+      ?year,
+      '${album.songCount} ${album.songCount == 1 ? 'track' : 'tracks'}',
+      formatDuration(album.totalDuration),
+    ].join(' • ');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // Very narrow windows leave no room for the artwork beside the
+          // tracklist; the list then uses the whole card.
+          final showPhoto = constraints.maxWidth >= 320;
+          final photoSide = showPhoto
+              ? math.min(constraints.maxHeight, constraints.maxWidth * 0.42)
+              : 0.0;
+
+          return Row(
+            children: [
+              if (showPhoto) ...[
+                _photo(photoSide),
+                const SizedBox(width: 12),
+              ],
+              Expanded(child: _list()),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  /// The album artwork, filling the card's full height. Clicking it collapses
+  /// the card: the card *is* the album's grid cell, so the photo doubles as
+  /// the way back to the tile it replaced.
+  Widget _photo(double side) {
+    return Tooltip(
+      message: 'Collapse album',
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: onCollapse,
+          child: SizedBox(
+            width: side,
+            height: side,
+            child: SmartArtworkWidget(
+              song: album.representativeSong,
+              borderRadius: BorderRadius.circular(10),
+            ),
           ),
         ),
-        Container(height: 1, color: Colors.white.withValues(alpha: 0.07)),
-        SizedBox(
-          height: panelHeight,
-          child: selectedAlbum == null
-              ? const SizedBox.shrink()
-              : _AlbumTrackPanel(
-                  album: selectedAlbum!,
-                  isRowPlaying: isRowPlaying,
-                  onPlay: (index) => onPlay(selectedAlbum!, index),
-                ),
+      ),
+    );
+  }
+
+  Widget _list() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    album.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _meta(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white60, fontSize: 11.5),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            FilledButton.icon(
+              onPressed: () => onPlay(album, 0),
+              icon: const Icon(Icons.play_arrow_rounded, size: 17),
+              label: const Text('Play'),
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                minimumSize: const Size(0, 28),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                textStyle: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+              ),
+            ),
+            IconButton(
+              tooltip: 'Collapse album',
+              iconSize: 18,
+              color: Colors.white54,
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.close_rounded),
+              onPressed: onCollapse,
+            ),
+          ],
         ),
+        const SizedBox(height: 4),
+        Expanded(child: _trackList()),
       ],
+    );
+  }
+
+  Widget _trackList() {
+    return ListView.builder(
+      padding: const EdgeInsets.only(right: 2, bottom: 2),
+      itemCount: album.songs.length,
+      itemBuilder: (context, index) {
+        final song = album.songs[index];
+        final isPlaying = isRowPlaying(song);
+        return Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: () => onPlay(album, index),
+            onSecondaryTap: () => SongOptionsDialog.show(context, song),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+              decoration: BoxDecoration(
+                color: isPlaying ? Colors.white.withValues(alpha: 0.10) : Colors.transparent,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 24,
+                    child: isPlaying
+                        ? const Icon(
+                            Icons.graphic_eq_rounded,
+                            size: 13,
+                            color: Colors.greenAccent,
+                          )
+                        : Text(
+                            '${index + 1}',
+                            style: const TextStyle(color: Colors.white38, fontSize: 11.5),
+                          ),
+                  ),
+                  Expanded(
+                    child: Text(
+                      song.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: isPlaying ? Colors.greenAccent : Colors.white,
+                        fontSize: 12.5,
+                        fontWeight: isPlaying ? FontWeight.bold : FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    formatPlaybackTime(Duration(milliseconds: song.duration ?? 0)),
+                    style: const TextStyle(color: Colors.white38, fontSize: 11.5),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -557,57 +997,14 @@ class _SearchRow extends StatelessWidget {
   }
 }
 
-class _AlbumGrid extends StatelessWidget {
-  final List<AlbumGroup> albums;
-  final String? selectedKey;
-  final String? playingAlbumName;
-  final ValueChanged<AlbumGroup> onSelect;
-  final ValueChanged<AlbumGroup> onPlay;
-
-  const _AlbumGrid({
-    required this.albums,
-    required this.selectedKey,
-    required this.playingAlbumName,
-    required this.onSelect,
-    required this.onPlay,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GridView.builder(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 160,
-        mainAxisSpacing: 12,
-        crossAxisSpacing: 12,
-        mainAxisExtent: 196,
-      ),
-      itemCount: albums.length,
-      itemBuilder: (context, index) {
-        final album = albums[index];
-        final key = '${album.name}\u0000${album.artist}';
-        return _AlbumTile(
-          album: album,
-          isSelected: key == selectedKey,
-          isPlaying: album.name == playingAlbumName,
-          onTap: () => onSelect(album),
-          onDoubleTap: () => onPlay(album),
-        );
-      },
-    );
-  }
-}
-
 class _AlbumTile extends StatelessWidget {
   final AlbumGroup album;
-  final bool isSelected;
   final bool isPlaying;
   final VoidCallback onTap;
   final VoidCallback onDoubleTap;
 
   const _AlbumTile({
     required this.album,
-    required this.isSelected,
     required this.isPlaying,
     required this.onTap,
     required this.onDoubleTap,
@@ -624,11 +1021,7 @@ class _AlbumTile extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.all(6),
           decoration: BoxDecoration(
-            color: isSelected ? Colors.white.withValues(alpha: 0.10) : Colors.transparent,
             borderRadius: BorderRadius.circular(12),
-            border: isSelected
-                ? Border.all(color: Colors.white.withValues(alpha: 0.18))
-                : null,
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -691,156 +1084,5 @@ class _AlbumTile extends StatelessWidget {
   }
 }
 
-class _AlbumTrackPanel extends StatelessWidget {
-  final AlbumGroup album;
-  final bool Function(SongModel song) isRowPlaying;
-  final ValueChanged<int> onPlay;
 
-  const _AlbumTrackPanel({
-    required this.album,
-    required this.isRowPlaying,
-    required this.onPlay,
-  });
 
-  /// Release year as printed on the first track that carries one.
-  String? _year() {
-    for (final song in album.songs) {
-      final releaseDate = (song.linuxScan?['releaseDate'] ?? '').toString();
-      if (releaseDate.length >= 4) {
-        final year = releaseDate.substring(0, 4);
-        if (int.tryParse(year) != null) return year;
-      }
-    }
-    return null;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final year = _year();
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-          child: Row(
-            children: [
-              SmartArtworkWidget(
-                song: album.representativeSong,
-                width: 52,
-                height: 52,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      album.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      [
-                        album.artist,
-                        ?year,
-                        '${album.songCount} ${album.songCount == 1 ? 'track' : 'tracks'}',
-                        formatDuration(album.totalDuration),
-                      ].join(' • '),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white60, fontSize: 12),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              FilledButton.icon(
-                onPressed: () => onPlay(0),
-                icon: const Icon(Icons.play_arrow_rounded, size: 20),
-                label: const Text('Play'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  foregroundColor: Colors.black,
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                ),
-              ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.only(bottom: 10),
-            itemCount: album.songs.length,
-            itemBuilder: (context, index) {
-              final song = album.songs[index];
-              final isPlaying = isRowPlaying(song);
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 1),
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(8),
-                    onTap: () => onPlay(index),
-                    onSecondaryTap: () => SongOptionsDialog.show(context, song),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: isPlaying
-                            ? Colors.white.withValues(alpha: 0.10)
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        children: [
-                          SizedBox(
-                            width: 28,
-                            child: isPlaying
-                                ? const Icon(Icons.graphic_eq_rounded,
-                                    size: 14, color: Colors.greenAccent)
-                                : Text(
-                                    '${index + 1}',
-                                    style: const TextStyle(
-                                      color: Colors.white38,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                          ),
-                          Expanded(
-                            child: Text(
-                              song.title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: isPlaying ? Colors.greenAccent : Colors.white,
-                                fontSize: 13,
-                                fontWeight: isPlaying ? FontWeight.bold : FontWeight.w500,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Text(
-                            formatPlaybackTime(Duration(milliseconds: song.duration ?? 0)),
-                            style: const TextStyle(color: Colors.white38, fontSize: 12),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-}

@@ -10,6 +10,8 @@ import 'package:u_player/core/services/player/artwork_style_preference.dart';
 import 'package:u_player/core/services/player/seekbar_preference.dart';
 import 'package:u_player/core/services/player/tap_preference.dart';
 import 'package:u_player/modules/library/pages/library_nav_screen.dart';
+import 'package:u_player/modules/player/mini_player/mini_player_service.dart';
+import 'package:u_player/modules/player/mini_player/mini_player_window.dart';
 import 'package:u_player/modules/player/pages/player_screen.dart';
 import 'package:u_player/modules/splash/splash_screen.dart';
 import 'package:just_audio_background/just_audio_background.dart';
@@ -55,8 +57,20 @@ class _PlayerVisibilityObserver extends NavigatorObserver {
   }
 }
 
-void main() async {
+void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // The desktop mini player is a window of its own, painted by a second
+  // engine running this same bundle: the GTK runner launches it with the
+  // mini-player entrypoint argument, and this branch boots just the panel.
+  // Everything it needs arrives over the channel the runner brokers to the
+  // main isolate (see MiniPlayerWindowService).
+  if (isLinuxDesktop &&
+      args.isNotEmpty &&
+      args.first == MiniPlayerWindowService.kMiniPlayerEntrypoint) {
+    runApp(const MiniPlayerApp());
+    return;
+  }
 
   if (isLinuxDesktop) {
     // just_audio has no native Linux backend: route playback through
@@ -87,6 +101,10 @@ void main() async {
   await loadSeekbarPreference();
   await loadSongTapPreference();
   await loadArtworkStylePreference();
+
+  // Desktop mini player: connects the shell to the window the GTK runner owns
+  // and reopens it if the user left it on last time.
+  unawaited(MiniPlayerWindowService.instance.init());
 
   runApp(MaterialApp(
     debugShowCheckedModeBanner: false,
