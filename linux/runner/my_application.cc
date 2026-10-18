@@ -26,11 +26,6 @@ struct _MyApplication {
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
 
-// Called when first Flutter frame received.
-static void first_frame_cb(MyApplication* self, FlView* view) {
-  gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
-}
-
 static gboolean is_deep_link_uri(const gchar* uri) {
   return uri != nullptr &&
          (g_str_has_prefix(uri, "uplayer://") ||
@@ -104,13 +99,6 @@ static void my_application_activate(GApplication* application) {
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
 
-  // Use a header bar when running in GNOME as this is the common style used
-  // by applications and is the setup most users will be using (e.g. Ubuntu
-  // desktop).
-  // If running on X and not using GNOME then just use a traditional title bar
-  // in case the window manager does more exotic layout, e.g. tiling.
-  // If running on Wayland assume the header bar will work (may need changing
-  // if future cases occur).
   gboolean use_header_bar = TRUE;
 #ifdef GDK_WINDOWING_X11
   GdkScreen* screen = gtk_window_get_screen(window);
@@ -131,11 +119,11 @@ static void my_application_activate(GApplication* application) {
     gtk_window_set_title(window, "uPlayer");
   }
 
-  // The UI is designed phone-first, so the desktop build opens as a tall,
-  // narrow player window instead of a 1280x720 desktop canvas. The window is
-  // shrunk (keeping the aspect) when the screen is too short for 520x920.
-  gint target_width = 520;
-  gint target_height = 920;
+  // Desktop layouts want a wide canvas (album grid + side-by-side player),
+  // so the window opens near 1160x700 and shrinks to fit the monitor's work
+  // area when the screen is smaller than that.
+  gint target_width = 1160;
+  gint target_height = 700;
   GdkDisplay* display = gtk_widget_get_display(GTK_WIDGET(window));
   GdkMonitor* monitor = gdk_display_get_primary_monitor(display);
   if (monitor == nullptr && gdk_display_get_n_monitors(display) > 0) {
@@ -144,16 +132,18 @@ static void my_application_activate(GApplication* application) {
   if (monitor != nullptr) {
     GdkRectangle workarea = {};
     gdk_monitor_get_workarea(monitor, &workarea);
+    const gint max_width = workarea.width - 80;
     const gint max_height = workarea.height - 60;
+    if (max_width > 0 && target_width > max_width) {
+      target_width = max_width;
+    }
     if (max_height > 0 && target_height > max_height) {
       target_height = max_height;
-      target_width =
-          static_cast<gint>(target_height * (520.0 / 920.0) + 0.5);
     }
   }
   gtk_window_set_default_size(window, target_width, target_height);
   GdkGeometry geometry = {};
-  geometry.min_width = MIN(360, target_width);
+  geometry.min_width = MIN(760, target_width);
   geometry.min_height = MIN(480, target_height);
   gtk_window_set_geometry_hints(window, nullptr, &geometry, GDK_HINT_MIN_SIZE);
 
@@ -174,10 +164,11 @@ static void my_application_activate(GApplication* application) {
   gtk_widget_show(GTK_WIDGET(view));
   gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(view));
 
-  // Show the window when Flutter renders.
-  // Requires the view to be realized so we can start rendering.
-  g_signal_connect_swapped(view, "first-frame", G_CALLBACK(first_frame_cb),
-                           self);
+  // Map the window right away instead of waiting for Flutter's first frame.
+  // On this machine the first frame can occasionally stall (GPU driver), and
+  // a GtkApplication whose only window is never mapped just quits, which made
+  // launches fail roughly half the time with no error at all.
+  gtk_widget_show(GTK_WIDGET(window));
   gtk_widget_realize(GTK_WIDGET(view));
 
   fl_register_plugins(FL_PLUGIN_REGISTRY(view));

@@ -11,6 +11,8 @@ import 'package:u_player/modules/library/widgets/artist_card.dart';
 import 'package:u_player/modules/library/widgets/label_chip.dart';
 import 'package:u_player/modules/library/widgets/song_options_dialog.dart';
 import 'package:u_player/modules/library/widgets/song_swipe_to_queue.dart';
+import 'package:u_player/modules/library/pages/desktop_library_layout.dart';
+import 'package:u_player/platform/platform_env.dart';
 
 /// Pre-calculated positions for zero-lag scrub performance.
 class PrecomputedAlphabetData {
@@ -135,6 +137,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
       builder: (context, _) {
         final isLoading = _controller.isLoading;
         final songs = _controller.songs;
+
+        // Desktop (Linux) gets a sidebar + album grid + track panel layout;
+        // the phone keeps its tabs, alphabet scrubber and drill-down screens.
+        if (isLinuxDesktop) {
+          return DesktopLibraryLayout(songs: songs, isLoading: isLoading);
+        }
 
         final query = _searchQuery.toLowerCase();
         final isSearching = query.isNotEmpty;

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:u_player/platform/audio_query_compat.dart';
+import 'package:u_player/platform/platform_env.dart';
 import 'package:u_player/core/models/library_group.dart';
 import 'package:u_player/core/services/player/playback_controller.dart';
 import 'package:u_player/core/services/play_count/play_count_service.dart';
@@ -101,7 +102,7 @@ class _StatsScreenState extends State<StatsScreen> {
     if (playedSongs.isEmpty) return _buildEmptyState();
 
     return ListView.builder(
-      padding: const EdgeInsets.only(bottom: 160),
+      padding: EdgeInsets.only(bottom: listBottomInset),
       itemCount: playedSongs.length,
       itemBuilder: (context, index) {
         final song = playedSongs[index];
@@ -145,7 +146,7 @@ class _StatsScreenState extends State<StatsScreen> {
     if (stats.isEmpty) return _buildEmptyState();
 
     return ListView.builder(
-      padding: const EdgeInsets.only(bottom: 160),
+      padding: EdgeInsets.only(bottom: listBottomInset),
       itemCount: stats.length,
       itemBuilder: (context, index) {
         final stat = stats[index];
@@ -188,7 +189,7 @@ class _StatsScreenState extends State<StatsScreen> {
     if (stats.isEmpty) return _buildEmptyState();
 
     return ListView.builder(
-      padding: const EdgeInsets.only(bottom: 160),
+      padding: EdgeInsets.only(bottom: listBottomInset),
       itemCount: stats.length,
       itemBuilder: (context, index) {
         final stat = stats[index];

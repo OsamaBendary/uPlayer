@@ -11,6 +11,7 @@ import 'package:u_player/modules/library/pages/library_nav_screen.dart';
 import 'package:u_player/modules/library/widgets/hero_flight_shuttles.dart';
 import 'package:u_player/modules/library/widgets/smart_artwork_widget.dart';
 import 'package:u_player/modules/player/pages/lyrics_screen.dart';
+import 'package:u_player/modules/player/pages/desktop_player_layout.dart';
 import 'package:u_player/modules/player/pages/queue_screen.dart';
 import 'package:u_player/modules/player/pages/widgets/artwork_swipe_detector.dart';
 import 'package:u_player/modules/player/pages/widgets/cd_artwork_widget.dart';
@@ -382,6 +383,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Desktop (Linux) replaces the whole phone layout: artwork half / playing
+    // list half, with its own transport bar.
+    if (isLinuxDesktop) {
+      return const DesktopPlayerLayout();
+    }
+
     return AnimatedBuilder(
       animation: _controller,
       builder: (context, _) {

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:u_player/core/services/player/playback_controller.dart';
 import 'package:u_player/modules/library/widgets/app_gradient_background.dart';
+import 'package:u_player/platform/platform_env.dart';
 
 /// Full-screen view of the playback queue: current song highlighted, tap to
 /// jump, swipe left to remove.
@@ -43,7 +44,7 @@ class QueueScreen extends StatelessWidget {
             }
 
             return ListView.builder(
-              padding: const EdgeInsets.only(top: 8, bottom: 160),
+              padding: EdgeInsets.only(top: 8, bottom: listBottomInset),
               itemCount: queue.length,
               itemBuilder: (context, index) {
                 final song = queue[index];

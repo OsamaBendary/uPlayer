@@ -7,6 +7,7 @@ import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:u_player/platform/audio_query_compat.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:audio_waveforms/audio_waveforms.dart' hide PlayerState;
 import 'package:u_player/core/services/access_to_files/access_service.dart';
 import 'package:u_player/core/services/play_count/play_count_service.dart';
@@ -54,6 +55,13 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
   bool isShuffleEnabled = false;
   LoopMode loopMode = LoopMode.off;
   bool isPlayOnce = false;
+
+  // Output volume (0..1) and mute, driven by the desktop player's volume
+  // control. Persisted so a restart keeps the level the user set.
+  static const String _volumePrefsKey = 'player_volume';
+  static const String _mutedPrefsKey = 'player_muted';
+  double volume = 1.0;
+  bool isMuted = false;
   Timer? _sleepTimer;
   Duration? sleepTimerDuration;
   int? _trackedSongId;
@@ -75,6 +83,8 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> _init() async {
     try {
+      await _loadVolumePreference();
+
       final loaded = await _audioRepository.fetchLocalSongs();
       songs = loaded;
       queue = List.from(loaded);
@@ -739,6 +749,57 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
     } finally {
       waveformController.dispose();
     }
+  }
+
+  // ─── Output volume ───────────────────────────────────────────────────────
+
+  Future<void> _loadVolumePreference() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      volume = (prefs.getDouble(_volumePrefsKey) ?? 1.0).clamp(0.0, 1.0);
+      isMuted = prefs.getBool(_mutedPrefsKey) ?? false;
+      await audioPlayer.setVolume(isMuted ? 0.0 : volume);
+    } catch (e) {
+      debugPrint('[PlaybackController] volume preference load failed: $e');
+    }
+  }
+
+  Future<void> _persistVolume() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setDouble(_volumePrefsKey, volume);
+      await prefs.setBool(_mutedPrefsKey, isMuted);
+    } catch (e) {
+      debugPrint('[PlaybackController] volume preference save failed: $e');
+    }
+  }
+
+  Future<void> setVolume(double value) async {
+    volume = value.clamp(0.0, 1.0);
+    // Dragging the slider up from zero is an implicit unmute; dragging it to
+    // zero is an implicit mute, so the icon always tells the truth.
+    isMuted = volume <= 0.001;
+    notifyListeners();
+    try {
+      await audioPlayer.setVolume(isMuted ? 0.0 : volume);
+    } catch (e) {
+      debugPrint('[PlaybackController] setVolume failed: $e');
+    }
+    await _persistVolume();
+  }
+
+  Future<void> toggleMute() async {
+    isMuted = !isMuted;
+    // Muting keeps the slider where it was and only silences the output;
+    // unmuting restores the previous, non-zero level.
+    if (!isMuted && volume <= 0.001) volume = 1.0;
+    notifyListeners();
+    try {
+      await audioPlayer.setVolume(isMuted ? 0.0 : volume);
+    } catch (e) {
+      debugPrint('[PlaybackController] toggleMute failed: $e');
+    }
+    await _persistVolume();
   }
 
   @override

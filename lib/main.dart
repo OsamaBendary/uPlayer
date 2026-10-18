@@ -103,8 +103,13 @@ void main() async {
       return Stack(
         children: [
           if (child != null) child,
-          const MiniPlayerBar(),
-          const FloatingNavBar(),
+          // Linux keeps its transport bar inside the shell screen (see
+          // LibraryNavScreen) so pushed routes cover it; the phone floats a
+          // nav pill and mini player over every screen.
+          if (!isLinuxDesktop) ...[
+            const MiniPlayerBar(),
+            const FloatingNavBar(),
+          ],
         ],
       );
     },

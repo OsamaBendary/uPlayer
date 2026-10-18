@@ -7,6 +7,8 @@ import 'package:u_player/modules/library/pages/library_screen.dart';
 import 'package:u_player/modules/library/pages/playlists_screen.dart';
 import 'package:u_player/modules/library/pages/stats_screen.dart';
 import 'package:u_player/modules/settings/pages/settings_screen.dart';
+import 'package:u_player/modules/player/widgets/desktop_shell_bar.dart';
+import 'package:u_player/platform/platform_env.dart';
 
 final ValueNotifier<int> currentTabNotifier = ValueNotifier<int>(0);
 final ValueNotifier<bool> isNavScreenVisible = ValueNotifier<bool>(false);
@@ -43,14 +45,25 @@ class _LibraryNavScreenState extends State<LibraryNavScreen> {
     }
     return Scaffold(
       backgroundColor: Colors.black,
-      body: ValueListenableBuilder<int>(
-        valueListenable: currentTabNotifier,
-        builder: (context, index, _) {
-          return IndexedStack(
-            index: index,
-            children: _screens,
-          );
-        },
+      body: Column(
+        children: [
+          Expanded(
+            child: ValueListenableBuilder<int>(
+              valueListenable: currentTabNotifier,
+              builder: (context, index, _) {
+                return IndexedStack(
+                  index: index,
+                  children: _screens,
+                );
+              },
+            ),
+          ),
+          // Desktop (Linux) puts its transport bar in the shell itself, so it
+          // only exists on the tabbed screen: pushed routes (the player,
+          // detail pages) cover the whole window instead of floating over a
+          // bar that should not follow them.
+          if (isLinuxDesktop) const DesktopShellBar(),
+        ],
       ),
     );
   }

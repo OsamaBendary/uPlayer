@@ -337,8 +337,10 @@ class _FolderPickerScreenState extends State<FolderPickerScreen> {
                           ),
                           Expanded(
                             child: ListView.builder(
-                              padding: const EdgeInsets.only(
-                                  left: 16, right: 16, bottom: 160),
+                              padding: EdgeInsets.only(
+                                  left: 16,
+                                  right: 16,
+                                  bottom: listBottomInset),
                               itemCount: filteredFolders.length,
                               itemBuilder: (context, index) {
                                 final folder = filteredFolders[index];
