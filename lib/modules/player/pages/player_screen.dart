@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/svg.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:marquee/marquee.dart';
-import 'package:on_audio_query/on_audio_query.dart';
+import 'package:u_player/platform/platform_env.dart';
 import 'package:u_player/core/services/player/playback_controller.dart';
 import 'package:u_player/core/services/player/artwork_style_preference.dart';
 import 'package:u_player/core/services/player/seekbar_preference.dart';
@@ -1072,7 +1072,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           ValueListenableBuilder<bool>(
                             valueListenable: useWaveformSeekbar,
                             builder: (context, useWaveform, _) {
-                              if (useWaveform) {
+                              // The waveform bar needs audio_waveforms, which
+                              // has no Linux implementation — desktop always
+                              // gets the linear seek bar.
+                              if (useWaveform && !isLinuxDesktop) {
                                 return SizedBox(
                                   height: 256,
                                   child: Stack(

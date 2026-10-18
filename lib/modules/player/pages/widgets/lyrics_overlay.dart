@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:on_audio_query/on_audio_query.dart';
+import 'package:u_player/platform/audio_query_compat.dart';
 import 'package:u_player/core/services/lyrics/lyrics_service.dart';
 import 'package:u_player/core/services/player/playback_controller.dart';
 

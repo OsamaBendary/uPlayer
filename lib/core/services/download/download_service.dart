@@ -6,7 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
-import 'package:on_audio_query/on_audio_query.dart';
+import 'package:u_player/platform/audio_query_compat.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -19,6 +19,8 @@ import 'package:u_player/core/services/player/playback_controller.dart';
 import 'package:u_player/core/services/tag_editor/tag_editor_service.dart';
 import 'package:u_player/core/navigation/app_keys.dart';
 import 'package:u_player/core/utils/app_snackbar.dart';
+import 'package:u_player/platform/linux/linux_paths.dart';
+import 'package:u_player/platform/platform_env.dart';
 
 class DownloadTask {
   final String id;
@@ -184,6 +186,16 @@ class DownloadService {
   /// Prefer the public Music/uPlayer folder when All files access is
   /// granted; otherwise fall back to the app-scoped dir (always writable).
   Future<String> _defaultDownloadDirectoryPath() async {
+    if (isLinuxDesktop) {
+      // XDG: ~/Music/uPlayer (honors xdg-user-dirs).
+      final dir = Directory(await LinuxPaths.defaultDownloadDir());
+      if (!await dir.exists()) {
+        try {
+          await dir.create(recursive: true);
+        } catch (_) {}
+      }
+      return dir.path;
+    }
     if (await hasAllFilesAccess()) {
       return ensureMusicUPlayerFolder();
     }

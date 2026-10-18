@@ -57,6 +57,10 @@ dependencies:
   archive: ^3.6.0
   youtube_explode_dart: ^2.2.0
   ffmpeg_kit_flutter_new_full: ^2.5.2
+  just_audio_media_kit: ^2.1.0
+  file_selector: ^1.1.0
+  image_picker_linux: ^0.2.2
+  media_kit_libs_linux: ^1.2.1
 
 
 

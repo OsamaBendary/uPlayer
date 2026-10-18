@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:u_player/core/navigation/app_keys.dart';
 export 'package:u_player/core/navigation/app_keys.dart';
@@ -11,6 +13,9 @@ import 'package:u_player/modules/library/pages/library_nav_screen.dart';
 import 'package:u_player/modules/player/pages/player_screen.dart';
 import 'package:u_player/modules/splash/splash_screen.dart';
 import 'package:just_audio_background/just_audio_background.dart';
+import 'package:just_audio_media_kit/just_audio_media_kit.dart';
+import 'package:u_player/platform/linux/linux_go_transport.dart';
+import 'package:u_player/platform/platform_env.dart';
 import 'package:u_player/modules/player/pages/widgets/mini_player_bar.dart';
 
 /// Drives PlaybackController.isPlayerScreenVisible directly from the
@@ -53,11 +58,18 @@ class _PlayerVisibilityObserver extends NavigatorObserver {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await JustAudioBackground.init(
-    androidNotificationChannelId: 'com.example.u_player.channel.audio',
-    androidNotificationChannelName: 'Audio Playback',
-    androidNotificationOngoing: true,
-  );
+  if (isLinuxDesktop) {
+    // just_audio has no native Linux backend: route playback through
+    // media_kit/libmpv. (Android keeps just_audio's ExoPlayer + the
+    // background-audio service below.)
+    JustAudioMediaKit.ensureInitialized(linux: true);
+  } else {
+    await JustAudioBackground.init(
+      androidNotificationChannelId: 'com.example.u_player.channel.audio',
+      androidNotificationChannelName: 'Audio Playback',
+      androidNotificationOngoing: true,
+    );
+  }
 
   // Initializes the Go download pipeline (gomobile bind). This MUST run before
   // any download: it sets the extension system dirs, loads installed provider
@@ -65,6 +77,11 @@ void main() async {
   await GoBackendBridge.instance.init();
   // Syncs the user's extension repos/store + provider priority with Go.
   await ExtensionService().init();
+  if (isLinuxDesktop) {
+    // `uplayer://session-grant...` links clicked in the browser are forwarded
+    // by the GTK runner; feed them into the extension session exchange.
+    unawaited(LinuxGoTransport.instance.attachDeepLinkChannel());
+  }
   // Restores persisted player customization preferences (song-tap behavior,
   // seek bar style, artwork style).
   await loadSeekbarPreference();

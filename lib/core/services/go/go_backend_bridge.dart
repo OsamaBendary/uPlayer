@@ -4,6 +4,9 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import 'package:u_player/platform/linux/linux_go_transport.dart';
+import 'package:u_player/platform/platform_env.dart';
+
 /// Thrown when the go_backend bridge exists but the gomobile AAR is not
 /// linked into the APK (android/app/libs/gobackend.aar missing).
 class GoBackendUnavailableException implements Exception {
@@ -53,6 +56,20 @@ class GoBackendBridge {
   void _ensureGrantListener() {
     if (_grantListenerReady) return;
     _grantListenerReady = true;
+    if (isLinuxDesktop) {
+      // The Go sidecar emits the same event the Android deep-link handler
+      // pushes through the method channel.
+      LinuxGoTransport.instance.events.listen((event) {
+        if (event['event'] != 'extensionSessionGrantCompleted') return;
+        final data =
+            (event['data'] as Map?)?.cast<String, dynamic>() ?? const {};
+        _grantController.add(GoSessionGrantEvent(
+          data['extension_id']?.toString() ?? '',
+          data['success'] == true,
+        ));
+      });
+      return;
+    }
     _channel.setMethodCallHandler((call) async {
       if (call.method == 'extensionSessionGrantCompleted') {
         final args = (call.arguments as Map<Object?, Object?>?) ?? const {};
@@ -79,6 +96,11 @@ class GoBackendBridge {
   bool _isMissing(PlatformException e) => e.code == 'missing_go_backend';
 
   Future<Map<String, String>> _appDirs() async {
+    if (isLinuxDesktop) {
+      final raw = await LinuxGoTransport.instance.invoke('getAppDirs', null);
+      if (raw is! Map) throw const GoBackendUnavailableException();
+      return raw.map((k, v) => MapEntry(k.toString(), v.toString()));
+    }
     final raw = await _channel.invokeMethod<Map<Object?, Object?>>('getAppDirs');
     if (raw == null) throw const GoBackendUnavailableException();
     return raw.map((k, v) => MapEntry(k.toString(), v.toString()));
@@ -86,6 +108,15 @@ class GoBackendBridge {
 
   Future<bool> _probe() {
     if (_probed) return Future.value(_available);
+    if (isLinuxDesktop) {
+      return _probeFuture ??= () async {
+        final ok = await LinuxGoTransport.instance.ensureStarted();
+        _available = ok;
+        lastError = ok ? '' : LinuxGoTransport.instance.lastError;
+        _probed = true;
+        return _available;
+      }();
+    }
     return _probeFuture ??= () async {
       try {
         await _channel.invokeMethod<String>('getAllDownloadProgress');
@@ -113,17 +144,17 @@ class GoBackendBridge {
         failure = 'no support dir';
       } else {
         final extensionsDir = '${dirs['support_dir']}/extensions';
-        await _channel.invokeMethod<void>('initExtensionSystem', {
+        await _call('initExtensionSystem', {
           'extensions_dir': extensionsDir,
           'data_dir': '${dirs['support_dir']}/data',
         });
         if (dirs['cache_dir']?.isNotEmpty == true) {
           try {
-            await _channel.invokeMethod<void>('initExtensionRepo', {
+            await _call('initExtensionRepo', {
               'cache_dir': dirs['cache_dir'],
             });
-          } on PlatformException catch (e) {
-            debugPrint('[GoBackendBridge] repo init failed: ${e.message}');
+          } catch (e) {
+            debugPrint('[GoBackendBridge] repo init failed: $e');
           }
         }
         try {
@@ -136,6 +167,9 @@ class GoBackendBridge {
       }
     } on MissingPluginException {
       failure = 'native bridge not registered';
+    } on GoBackendUnavailableException catch (e) {
+      failure = e.message.isEmpty ? 'go backend unavailable' : e.message;
+      debugPrint('[GoBackendBridge] init failed: $failure');
     } on PlatformException catch (e) {
       failure = _isMissing(e) ? (e.message ?? e.code) : null;
       if (failure != null) {
@@ -345,6 +379,30 @@ class GoBackendBridge {
     }
   }
 
+  // ─── Library scan (Linux desktop) ───────────────────────────────────────
+  // The Android build gets its library from MediaStore; the Linux build
+  // scans folders on disk through the Go backend, which also extracts
+  // embedded covers into [cacheDir].
+
+  /// Where the Go scanner writes extracted album art (Linux).
+  Future<void> setLibraryCoverCacheDir(String cacheDir) {
+    return _call('setLibraryCoverCacheDirJSON', {'cache_dir': cacheDir});
+  }
+
+  /// Incremental filesystem scan of [folderPath]. [existingFilesJson] is a
+  /// `{path: mtimeMs}` map from the previous scan; returns the Go
+  /// `IncrementalScanResult` JSON (scanned/deletedPaths/skippedCount/...).
+  Future<String> scanLibraryFolderIncremental(
+    String folderPath,
+    String existingFilesJson,
+  ) async {
+    final raw = await _call('scanLibraryFolderIncrementalJSON', {
+      'folder_path': folderPath,
+      'existing_files_json': existingFilesJson,
+    });
+    return raw?.toString() ?? '{}';
+  }
+
   // ─── Extensions ─────────────────────────────────────────────────────────
 
   Future<Map<String, dynamic>> loadExtensionsFromDir(String dirPath) async {
@@ -479,6 +537,21 @@ class GoBackendBridge {
       throw const GoBackendUnavailableException();
     }
     _ensureGrantListener();
+    if (isLinuxDesktop) {
+      try {
+        return await LinuxGoTransport.instance.invoke(method, args);
+      } on PlatformException catch (e) {
+        if (_isMissing(e)) {
+          // Sidecar died or never started — allow a retry on the next call.
+          lastError = e.message ?? 'go sidecar unavailable';
+          _available = false;
+          _probed = false;
+          _probeFuture = null;
+          throw GoBackendUnavailableException(lastError);
+        }
+        throw GoBackendCallException(e.code, e.message ?? '');
+      }
+    }
     try {
       return await _channel.invokeMethod<Object?>(method, args);
     } on MissingPluginException catch (e) {

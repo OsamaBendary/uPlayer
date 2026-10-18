@@ -5,12 +5,13 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
-import 'package:on_audio_query/on_audio_query.dart';
+import 'package:u_player/platform/audio_query_compat.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:audio_waveforms/audio_waveforms.dart' hide PlayerState;
 import 'package:u_player/core/services/access_to_files/access_service.dart';
 import 'package:u_player/core/services/play_count/play_count_service.dart';
 import 'package:u_player/core/services/playback_state/playback_state_service.dart';
+import 'package:u_player/platform/platform_env.dart';
 
 /// App-wide playback state.
 class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
@@ -93,8 +94,8 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
         }
 
         currentIndex = initialIndex;
-        await audioPlayer.setAudioSource(
-          await _createPlaylist(queue, initialIndex: initialIndex),
+        await _loadQueue(
+          queue,
           initialIndex: initialIndex,
           initialPosition: initialPosition,
         );
@@ -190,8 +191,8 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
         } else {
           final newIndex = playing != null ? queue.indexWhere((s) => s.id == playing.id) : 0;
           currentIndex = newIndex == -1 ? 0 : newIndex;
-          await audioPlayer.setAudioSource(
-            await _createPlaylist(queue, initialIndex: currentIndex),
+          await _loadQueue(
+            queue,
             initialIndex: currentIndex,
             initialPosition: position,
           );
@@ -247,6 +248,33 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  /// Loads [list] as the player's queue.
+  ///
+  /// Android (ExoPlayer) takes the nested `ConcatenatingAudioSource` directly.
+  /// Linux playback goes through media_kit, which cannot convert nested
+  /// concatenating sources, so it receives the flat per-song list instead —
+  /// `just_audio` keeps its own playlist wrapper around it.
+  Future<void> _loadQueue(
+    List<SongModel> list, {
+    required int initialIndex,
+    Duration? initialPosition,
+  }) async {
+    final playlist = await _createPlaylist(list, initialIndex: initialIndex);
+    if (isLinuxDesktop) {
+      await audioPlayer.setAudioSources(
+        playlist.children,
+        initialIndex: initialIndex,
+        initialPosition: initialPosition,
+      );
+      return;
+    }
+    await audioPlayer.setAudioSource(
+      playlist,
+      initialIndex: initialIndex,
+      initialPosition: initialPosition,
+    );
+  }
+
   Future<ConcatenatingAudioSource> _createPlaylist(List<SongModel> list, {int? initialIndex}) async {
     // Only pre-resolve artwork for the initial track so startup is instant (< 50ms).
     // Other tracks use cached artwork if available, or resolve lazily on playback.
@@ -297,10 +325,7 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
     queueIsWholeLibrary = _isSameSongs(queue, songs);
     currentIndex = clampedStart;
 
-    await audioPlayer.setAudioSource(
-      await _createPlaylist(queue, initialIndex: clampedStart),
-      initialIndex: clampedStart,
-    );
+    await _loadQueue(queue, initialIndex: clampedStart);
 
     if (wasShuffled) {
       await audioPlayer.shuffle();
@@ -538,8 +563,8 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
     final newIndex = playing != null ? queue.indexWhere((s) => s.id == playing.id) : 0;
     currentIndex = newIndex == -1 ? 0 : newIndex;
 
-    await audioPlayer.setAudioSource(
-      await _createPlaylist(queue, initialIndex: newIndex),
+    await _loadQueue(
+      queue,
       initialIndex: newIndex,
       initialPosition: position,
     );
@@ -585,8 +610,8 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
       final newIndex = playing != null ? queue.indexWhere((s) => s.id == playing.id) : 0;
       currentIndex = newIndex == -1 ? 0 : newIndex;
 
-      await audioPlayer.setAudioSource(
-        await _createPlaylist(queue, initialIndex: currentIndex),
+      await _loadQueue(
+        queue,
         initialIndex: currentIndex,
         initialPosition: position,
       );
@@ -659,6 +684,9 @@ class PlaybackController extends ChangeNotifier with WidgetsBindingObserver {
   // --- Waveform extraction ---
 
   Future<void> _loadWaveformFor(SongModel song) async {
+    // audio_waveforms is Android/iOS only — the waveform seek bar is a
+    // mobile extra; Linux always uses the plain linear seek bar.
+    if (isLinuxDesktop) return;
     if (waveformCache.containsKey(song.id)) return;
 
     final file = File(song.data);

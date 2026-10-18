@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:on_audio_query/on_audio_query.dart' hide PlaylistModel;
+import 'package:u_player/platform/audio_query_compat.dart';
 import 'package:u_player/core/models/playlist_model.dart';
 import 'package:u_player/core/services/access_to_files/access_service.dart';
 import 'package:u_player/core/services/playlist/playlist_service.dart';

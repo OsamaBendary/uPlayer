@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:on_audio_query/on_audio_query.dart';
+import 'package:u_player/platform/audio_query_compat.dart';
 import 'package:u_player/modules/library/widgets/smart_artwork_widget.dart';
 
 /// A jewel-case CD look: the square album cover sits in a transparent plastic

@@ -4,6 +4,9 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_audio_tagger/flutter_audio_tagger.dart';
 import 'package:flutter_audio_tagger/tag.dart';
+import 'package:u_player/core/services/go/go_backend_bridge.dart';
+import 'package:u_player/platform/artwork/artwork_registry.dart';
+import 'package:u_player/platform/platform_env.dart';
 
 class TagInfo {
   final String title;
@@ -27,6 +30,7 @@ class TagEditorService {
   final FlutterAudioTagger _tagger = FlutterAudioTagger();
 
   Future<TagInfo?> readTags(String filePath) async {
+    if (isLinuxDesktop) return _readTagsLinux(filePath);
     try {
       final tag = await _tagger.getAllTags(filePath);
       if (tag == null) return null;
@@ -40,6 +44,36 @@ class TagEditorService {
       );
     } catch (e) {
       debugPrint('TagEditorService readTags error: $e');
+      return null;
+    }
+  }
+
+  /// Linux: tags come from the Go backend's native readers (the same ones
+  /// used during library scan); artwork comes from the scan cover cache or a
+  /// sidecar image next to the file.
+  Future<TagInfo?> _readTagsLinux(String filePath) async {
+    try {
+      final meta = await GoBackendBridge.instance.readFileMetadata(filePath);
+      if (meta == null) return null;
+
+      Uint8List? artworkBytes;
+      final artFile = ArtworkRegistry.instance.artworkFileForAudioPath(filePath);
+      if (artFile != null) {
+        try {
+          artworkBytes = await artFile.readAsBytes();
+        } catch (_) {}
+      }
+
+      return TagInfo(
+        title: (meta['title'] ?? '').toString(),
+        artist: (meta['artist'] ?? '').toString(),
+        album: (meta['album'] ?? '').toString(),
+        year: (meta['date'] ?? '').toString(),
+        genre: (meta['genre'] ?? '').toString(),
+        artwork: artworkBytes,
+      );
+    } catch (e) {
+      debugPrint('TagEditorService readTags (linux) error: $e');
       return null;
     }
   }
@@ -58,6 +92,19 @@ class TagEditorService {
     if (!await file.exists()) {
       debugPrint('TagEditorService error: File does not exist at $filePath');
       return false;
+    }
+
+    if (isLinuxDesktop) {
+      return _writeTagsLinux(
+        filePath: filePath,
+        title: title,
+        artist: artist,
+        album: album,
+        year: year,
+        genre: genre,
+        trackNumber: trackNumber,
+        artworkBytes: artworkBytes,
+      );
     }
 
     await Future.delayed(const Duration(milliseconds: 100));
@@ -118,6 +165,58 @@ class TagEditorService {
       return true;
     } catch (dartErr) {
       debugPrint('TagEditorService pure Dart encoder error: $dartErr');
+      return false;
+    }
+  }
+
+  /// Linux: writes tags through the Go backend (native FLAC/M4A/MP3/Opus
+  /// tag writers). Covers are passed to Go as a temp file path.
+  Future<bool> _writeTagsLinux({
+    required String filePath,
+    required String title,
+    required String artist,
+    required String album,
+    required String year,
+    required String genre,
+    required String trackNumber,
+    Uint8List? artworkBytes,
+  }) async {
+    try {
+      final fields = <String, String>{
+        'title': title,
+        'artist': artist,
+        'album': album,
+        'date': year,
+        'genre': genre,
+      };
+      if (trackNumber.isNotEmpty) fields['track_number'] = trackNumber;
+
+      File? coverFile;
+      if (artworkBytes != null && artworkBytes.isNotEmpty) {
+        try {
+          coverFile = File(
+              '${Directory.systemTemp.path}/uplayer_tag_cover_${DateTime.now().millisecondsSinceEpoch}.jpg');
+          await coverFile.writeAsBytes(artworkBytes, flush: true);
+          fields['cover_path'] = coverFile.path;
+        } catch (e) {
+          debugPrint('TagEditorService cover temp write failed: $e');
+          coverFile = null;
+        }
+      }
+
+      try {
+        final result =
+            await GoBackendBridge.instance.editFileMetadata(filePath, fields);
+        return result['success'] == true;
+      } finally {
+        if (coverFile != null) {
+          try {
+            await coverFile.delete();
+          } catch (_) {}
+        }
+      }
+    } catch (e) {
+      debugPrint('TagEditorService (linux) write error: $e');
       return false;
     }
   }

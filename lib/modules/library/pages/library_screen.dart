@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:on_audio_query/on_audio_query.dart';
+import 'package:u_player/platform/audio_query_compat.dart';
 import 'package:u_player/core/models/library_group.dart';
 import 'package:u_player/core/services/player/playback_controller.dart';
 import 'package:u_player/modules/library/pages/album_song_list_screen.dart';

@@ -1,13 +1,20 @@
-import 'package:on_audio_query/on_audio_query.dart';
+import 'package:flutter/foundation.dart';
+import 'package:on_audio_query/on_audio_query.dart' as oaq;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:u_player/core/services/favorites_service/favorites_service.dart';
 import 'package:u_player/core/services/folder_filter/folder_filter_service.dart';
 import 'package:u_player/core/services/go/go_backend_bridge.dart';
+import 'package:u_player/platform/audio_query_compat.dart';
+import 'package:u_player/platform/linux/linux_library.dart';
+import 'package:u_player/platform/linux/linux_paths.dart';
+import 'package:u_player/platform/platform_env.dart';
 
 class LocalAudioRepository {
   final FavoritesService _favoritesService = FavoritesService();
   final FolderFilterService _folderFilterService = FolderFilterService();
-  final OnAudioQuery _audioQuery = OnAudioQuery();
+
+  /// Android-only MediaStore handle. Never touched on Linux.
+  final oaq.OnAudioQuery _audioQuery = oaq.OnAudioQuery();
 
   /// Tag metadata (track/disc numbers) read from audio files, keyed by file
   /// path, so repeated library refreshes never re-read the same file. Small
@@ -24,6 +31,9 @@ class LocalAudioRepository {
   static const int _tagReadConcurrency = 4;
 
   Future<bool> requestPermission() async {
+    // Linux reads files directly — no runtime permission exists.
+    if (isLinuxDesktop) return true;
+
     var status = await Permission.audio.request();
 
     if (!status.isGranted) {
@@ -33,23 +43,29 @@ class LocalAudioRepository {
     return status.isGranted;
   }
 
-  /// Returns every song on the device, filtered down to the user's chosen
+  /// Returns every song in the library, filtered down to the user's chosen
   /// folders if they've selected any. An empty selection (the default,
   /// nobody has opened the folder picker yet) means no filter — every song
   /// is included, same as before this feature existed.
+  ///
+  /// Android: MediaStore scan via on_audio_query.
+  /// Linux: incremental filesystem scan through the Go backend.
   Future<List<SongModel>> fetchLocalSongs() async {
+    if (isLinuxDesktop) return _fetchLinuxSongs();
+
     bool granted = await requestPermission();
 
     if (!granted) {
       return [];
     }
 
-    final allSongs = await _audioQuery.querySongs(
-      sortType: SongSortType.TITLE,
-      orderType: OrderType.ASC_OR_SMALLER,
-      uriType: UriType.EXTERNAL,
+    final rows = await _audioQuery.querySongs(
+      sortType: oaq.SongSortType.TITLE,
+      orderType: oaq.OrderType.ASC_OR_SMALLER,
+      uriType: oaq.UriType.EXTERNAL,
       ignoreCase: true,
     );
+    final allSongs = rows.map(SongModel.fromAndroid).toList();
 
     final selectedFolders = await _folderFilterService.getSelectedFolders();
     final songs = selectedFolders.isEmpty
@@ -60,6 +76,39 @@ class LocalAudioRepository {
           }).toList();
 
     return _enrichAmbiguousAlbumOrdering(songs);
+  }
+
+  /// Linux library fetch: scan the user's music folders (Go scanner) and
+  /// apply the folder filter. Disc/track numbers already come from the tags
+  /// during the scan, so no MediaStore-style enrichment pass is needed.
+  ///
+  /// When the Go sidecar isn't available (binary missing / crashed) this
+  /// degrades to an empty library instead of taking screens down with it.
+  Future<List<SongModel>> _fetchLinuxSongs() async {
+    final roots = await getScanRoots();
+    final List<SongModel> allSongs;
+    try {
+      allSongs = await LinuxLibraryService.instance.fetchSongs(roots: roots);
+    } on GoBackendUnavailableException catch (e) {
+      debugPrint('[LocalAudioRepository] Linux library unavailable: ${e.message}');
+      return [];
+    }
+
+    final selectedFolders = await _folderFilterService.getSelectedFolders();
+    if (selectedFolders.isEmpty) return allSongs;
+
+    return allSongs
+        .where((song) =>
+            selectedFolders.any((folder) => song.data.startsWith(folder)))
+        .toList();
+  }
+
+  /// Folders the Linux scanner walks (from the folder picker); falling back
+  /// to `~/Music` when the user hasn't chosen anything yet.
+  Future<List<String>> getScanRoots() async {
+    final stored = await _folderFilterService.getScanRoots();
+    if (stored.isNotEmpty) return stored;
+    return [await LinuxPaths.musicDir()];
   }
 
   /// The MediaStore only exposes a plain track number — no disc number, and
@@ -166,18 +215,24 @@ class LocalAudioRepository {
     return favoriteSongs;
   }
 
-  /// Distinct parent-folder paths across every audio file on the device
+  /// Distinct parent-folder paths across every audio file in the library
   /// (unfiltered — this is what feeds the folder picker, so it has to show
   /// real folders regardless of any filter already applied). Derived from
   /// song paths directly rather than a separate directory-picker package,
-  /// since the device's music is already scanned here.
+  /// since the library's music is already scanned here.
   Future<List<String>> fetchAvailableFolders() async {
+    if (isLinuxDesktop) {
+      // Make sure something has been scanned before listing folders.
+      await _fetchLinuxSongs();
+      return LinuxLibraryService.instance.availableFolders();
+    }
+
     bool granted = await requestPermission();
     if (!granted) return [];
 
-    final songs = await _audioQuery.querySongs(uriType: UriType.EXTERNAL);
+    final rows = await _audioQuery.querySongs(uriType: oaq.UriType.EXTERNAL);
     final folders = <String>{};
-    for (final song in songs) {
+    for (final song in rows) {
       final path = song.data;
       final lastSlash = path.lastIndexOf('/');
       if (lastSlash > 0) {

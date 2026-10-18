@@ -30,4 +30,36 @@ class FolderFilterService {
     folders.remove(path);
     await setSelectedFolders(folders);
   }
+
+  // ─── Linux desktop scan roots ────────────────────────────────────────────
+  // On Linux the picker lets the user choose real directories to scan (GTK
+  // folder dialog), stored separately from the sub-folder filter above.
+  // Empty list = "user never picked anything" -> the repository falls back
+  // to ~/Music.
+
+  static const String _scanRootsKey = 'linux_scan_roots';
+
+  Future<List<String>> getScanRoots() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getStringList(_scanRootsKey) ?? [];
+  }
+
+  Future<void> setScanRoots(List<String> roots) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_scanRootsKey, roots);
+  }
+
+  Future<void> addScanRoot(String path) async {
+    final roots = await getScanRoots();
+    if (!roots.contains(path)) {
+      roots.add(path);
+      await setScanRoots(roots);
+    }
+  }
+
+  Future<void> removeScanRoot(String path) async {
+    final roots = await getScanRoots();
+    roots.remove(path);
+    await setScanRoots(roots);
+  }
 }

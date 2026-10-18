@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:on_audio_query/on_audio_query.dart';
+import 'package:u_player/platform/audio_query_compat.dart';
 import 'package:u_player/modules/library/widgets/hero_flight_shuttles.dart';
 import 'package:u_player/modules/library/widgets/label_chip.dart';
 

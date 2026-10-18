@@ -2,7 +2,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_audio_tagger/flutter_audio_tagger.dart';
-import 'package:on_audio_query/on_audio_query.dart';
+import 'package:u_player/platform/audio_query_compat.dart';
+import 'package:u_player/platform/platform_env.dart';
 
 class SmartArtworkWidget extends StatefulWidget {
   final SongModel song;
@@ -67,10 +68,14 @@ class _SmartArtworkWidgetState extends State<SmartArtworkWidget> {
           return Image.file(coverJpg, width: widget.width, height: widget.height, fit: widget.fit);
         }
 
-        // 3. Embedded ID3/FLAC tag artwork bytes
-        final bytes = await FlutterAudioTagger().getArtWork(songPath);
-        if (bytes != null && bytes.isNotEmpty) {
-          return Image.memory(bytes, width: widget.width, height: widget.height, fit: widget.fit);
+        // 3. Embedded ID3/FLAC tag artwork bytes. The tagger plugin is
+        //    Android/macOS-only — on Linux the scan cover cache doubles as
+        //    the embedded-art source (handled by QueryArtworkWidget below).
+        if (!isLinuxDesktop) {
+          final bytes = await FlutterAudioTagger().getArtWork(songPath);
+          if (bytes != null && bytes.isNotEmpty) {
+            return Image.memory(bytes, width: widget.width, height: widget.height, fit: widget.fit);
+          }
         }
       } catch (e) {
         debugPrint('SmartArtworkWidget error: $e');

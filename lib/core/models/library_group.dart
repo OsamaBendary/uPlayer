@@ -1,4 +1,4 @@
-import 'package:on_audio_query/on_audio_query.dart';
+import 'package:u_player/platform/audio_query_compat.dart';
 
 /// Formats a [Duration] as a short human string, e.g. "1 hr 12m" or "3 min 05s".
 String formatDuration(Duration d) {

@@ -1,9 +1,12 @@
 import 'dart:io';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:u_player/core/services/download/download_service.dart';
 import 'package:u_player/core/utils/app_snackbar.dart';
 import 'package:u_player/modules/library/widgets/app_gradient_background.dart';
 import 'package:u_player/modules/library/widgets/label_chip.dart';
+import 'package:u_player/platform/linux/linux_paths.dart';
+import 'package:u_player/platform/platform_env.dart';
 
 class DownloadFolderPickerScreen extends StatefulWidget {
   const DownloadFolderPickerScreen({super.key});
@@ -16,17 +19,19 @@ class _DownloadFolderPickerScreenState extends State<DownloadFolderPickerScreen>
   late TextEditingController _pathController;
   String _currentPath = '';
 
-  final List<String> _quickPresets = const [
+  final List<String> _androidPresets = const [
     '/storage/emulated/0/Music/uPlayer',
     '/storage/emulated/0/Music',
     '/storage/emulated/0/Download',
   ];
+  List<String> _quickPresets = const [];
 
   @override
   void initState() {
     super.initState();
     _pathController = TextEditingController();
     _loadCurrentPath();
+    _loadPresets();
   }
 
   Future<void> _loadCurrentPath() async {
@@ -38,6 +43,31 @@ class _DownloadFolderPickerScreenState extends State<DownloadFolderPickerScreen>
       });
     }
   }
+
+  Future<void> _loadPresets() async {
+    if (!isLinuxDesktop) {
+      if (mounted) setState(() => _quickPresets = _androidPresets);
+      return;
+    }
+    final musicDir = await LinuxPaths.musicDir();
+    final presets = <String>[
+      '$musicDir/uPlayer',
+      musicDir,
+      '${LinuxPaths.homeDir}/Downloads',
+    ];
+    if (mounted) setState(() => _quickPresets = presets);
+  }
+
+  Future<void> _browseForDirectory() async {
+    final picked = await getDirectoryPath(
+      initialDirectory: _currentPath,
+      confirmButtonText: 'Use this folder',
+    );
+    if (picked == null || picked.isEmpty) return;
+    _pathController.text = picked;
+    await _savePath(picked);
+  }
+
 
   @override
   void dispose() {
@@ -138,7 +168,9 @@ class _DownloadFolderPickerScreenState extends State<DownloadFolderPickerScreen>
                         controller: _pathController,
                         style: const TextStyle(color: Colors.white, fontSize: 13),
                         decoration: InputDecoration(
-                          hintText: '/storage/emulated/0/Music/uPlayer',
+                          hintText: isLinuxDesktop
+                              ? '${LinuxPaths.homeDir}/Music/uPlayer'
+                              : '/storage/emulated/0/Music/uPlayer',
                           hintStyle: const TextStyle(color: Colors.white38),
                           filled: true,
                           fillColor: Colors.black.withValues(alpha: 0.3),
@@ -163,6 +195,26 @@ class _DownloadFolderPickerScreenState extends State<DownloadFolderPickerScreen>
                     ),
                   ],
                 ),
+                if (isLinuxDesktop) ...[
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _browseForDirectory,
+                      icon: const Icon(Icons.folder_open_rounded, size: 20),
+                      label: const Text(
+                        'Browse for folder…',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        side: const BorderSide(color: Colors.white24),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ),
+                ],
 
                 const SizedBox(height: 28),
                 const Text(

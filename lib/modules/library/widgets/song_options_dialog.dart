@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:on_audio_query/on_audio_query.dart';
+import 'package:u_player/platform/audio_query_compat.dart';
 import 'package:u_player/core/services/favorites_service/favorites_service.dart';
 import 'package:u_player/core/services/player/playback_controller.dart';
 import 'package:u_player/core/services/playlist/playlist_service.dart';

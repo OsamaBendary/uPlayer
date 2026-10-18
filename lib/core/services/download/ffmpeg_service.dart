@@ -5,11 +5,18 @@ import 'package:ffmpeg_kit_flutter_new_full/ffmpeg_kit_config.dart';
 import 'package:ffmpeg_kit_flutter_new_full/ffprobe_kit.dart';
 import 'package:ffmpeg_kit_flutter_new_full/return_code.dart';
 
+import 'package:u_player/platform/platform_env.dart';
+
 /// FFmpeg helpers copied from the SpotiFLAC Mobile download pipeline so the
 /// post-download conversion behavior is identical (M4A/DASH -> FLAC, and
 /// M4A -> requested lossy format for HIGH quality Tidal downloads).
+///
+/// On mobile the work is done by the bundled `ffmpeg_kit` binaries; on Linux
+/// desktop we shell out to the system `ffmpeg`/`ffprobe` instead (the command
+/// strings are portable between the two).
 class FFmpegService {
   static Future<FFmpegResult> _execute(String command) async {
+    if (isLinuxDesktop) return _executeWithSystemFfmpeg(command);
     try {
       final session = await FFmpegKit.execute(command);
       final returnCode = await session.getReturnCode();
@@ -24,6 +31,74 @@ class FFmpegService {
       debugPrint('[FFmpeg] execute error: $e');
       return FFmpegResult(success: false, returnCode: -1, output: e.toString());
     }
+  }
+
+  /// Runs [command] (a shell-style ffmpeg argument string) with the system
+  /// ffmpeg binary. Only used on Linux desktop.
+  static Future<FFmpegResult> _executeWithSystemFfmpeg(String command) async {
+    try {
+      final result = await Process.run(
+        'ffmpeg',
+        ['-hide_banner', ..._splitCommandLine(command)],
+      );
+      final output = [
+        result.stdout.toString(),
+        result.stderr.toString(),
+      ].where((part) => part.trim().isNotEmpty).join('\n');
+      return FFmpegResult(
+        success: result.exitCode == 0,
+        returnCode: result.exitCode,
+        output: output,
+      );
+    } on ProcessException catch (e) {
+      debugPrint('[FFmpeg] ffmpeg binary unavailable: $e');
+      return FFmpegResult(success: false, returnCode: -1, output: e.toString());
+    } catch (e) {
+      debugPrint('[FFmpeg] execute error: $e');
+      return FFmpegResult(success: false, returnCode: -1, output: e.toString());
+    }
+  }
+
+  /// Minimal shell-word splitter for the ffmpeg command strings built in this
+  /// file (double-quoted paths, no globbing or substitutions). Avoids going
+  /// through `/bin/sh`, so only quotes and backslashes are interpreted.
+  static List<String> _splitCommandLine(String command) {
+    final args = <String>[];
+    final buffer = StringBuffer();
+    var inSingleQuote = false;
+    var inDoubleQuote = false;
+    var hasToken = false;
+
+    for (var i = 0; i < command.length; i++) {
+      final char = command[i];
+      if (char == r'\' && !inSingleQuote && i + 1 < command.length) {
+        buffer.write(command[++i]);
+        hasToken = true;
+        continue;
+      }
+      if (char == "'" && !inDoubleQuote) {
+        inSingleQuote = !inSingleQuote;
+        hasToken = true;
+        continue;
+      }
+      if (char == '"' && !inSingleQuote) {
+        inDoubleQuote = !inDoubleQuote;
+        hasToken = true;
+        continue;
+      }
+      if (!inSingleQuote && !inDoubleQuote && (char == ' ' || char == '\t')) {
+        if (hasToken) {
+          args.add(buffer.toString());
+          buffer.clear();
+          hasToken = false;
+        }
+        continue;
+      }
+      buffer.write(char);
+      hasToken = true;
+    }
+    if (hasToken) args.add(buffer.toString());
+    return args;
   }
 
   static String _buildOutputPath(String inputPath, String extension) {
@@ -158,6 +233,7 @@ class FFmpegService {
 
   /// Probes the primary audio codec (e.g. "flac", "opus", "aac", "alac").
   static Future<String?> probePrimaryAudioCodec(String filePath) async {
+    if (isLinuxDesktop) return _probeWithSystemFfprobe(filePath);
     try {
       final session = await FFprobeKit.getMediaInformation(filePath);
       final info = session.getMediaInformation();
@@ -169,6 +245,43 @@ class FFmpegService {
         final codec = props['codec_name']?.toString().trim().toLowerCase();
         return codec == null || codec.isEmpty ? null : codec;
       }
+    } catch (e) {
+      debugPrint('[FFmpeg] Audio codec probe failed for $filePath: $e');
+    }
+    return null;
+  }
+
+  /// Linux desktop variant of [probePrimaryAudioCodec] using the system
+  /// `ffprobe` binary.
+  static Future<String?> _probeWithSystemFfprobe(String filePath) async {
+    try {
+      final result = await Process.run('ffprobe', [
+        '-v',
+        'error',
+        '-select_streams',
+        'a:0',
+        '-show_entries',
+        'stream=codec_name',
+        '-of',
+        'default=noprint_wrappers=1:nokey=1',
+        filePath,
+      ]);
+      if (result.exitCode != 0) {
+        debugPrint(
+          '[FFmpeg] Audio codec probe failed (${result.exitCode}) for $filePath: '
+          '${result.stderr.toString().trim()}',
+        );
+        return null;
+      }
+      final codec = result.stdout
+          .toString()
+          .split('\n')
+          .map((line) => line.trim())
+          .firstWhere((line) => line.isNotEmpty, orElse: () => '')
+          .toLowerCase();
+      return codec.isEmpty ? null : codec;
+    } on ProcessException catch (e) {
+      debugPrint('[FFmpeg] ffprobe binary unavailable: $e');
     } catch (e) {
       debugPrint('[FFmpeg] Audio codec probe failed for $filePath: $e');
     }
@@ -287,6 +400,16 @@ class FFmpegService {
   }
 
   static Future<bool> isAvailable() async {
+    if (isLinuxDesktop) {
+      try {
+        final result = await Process.run('ffmpeg', ['-version']);
+        return result.exitCode == 0;
+      } on ProcessException {
+        return false;
+      } catch (e) {
+        return false;
+      }
+    }
     try {
       final version = await FFmpegKitConfig.getFFmpegVersion();
       return version?.isNotEmpty ?? false;

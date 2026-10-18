@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:on_audio_query/on_audio_query.dart';
+import 'package:u_player/platform/audio_query_compat.dart';
 import 'package:palette_generator_master/palette_generator_master.dart';
 import 'package:animate_gradient/animate_gradient.dart';
 
