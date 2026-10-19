@@ -42,6 +42,7 @@ A high-performance, aesthetically crafted local music player built with Flutter.
 * **Ultra-Smooth Performance**: Native canvas rendering via isolated stream controllers ensures playback position updates operate without whole-tree UI rebuilds.
 * **Full-Screen Lyrics View**: Immersive full-screen lyrics screen featuring fluid transition animations anchored directly to player controls.
 * **Queue & Playback Control**: Rich queue management supporting shuffle modes, repeat options (track/queue/play-once), and custom sleep timers.
+* **Discord Rich Presence** (Linux desktop): Shows uPlayer as a listening activity with the song title, artist, album, cover art, and a live progress bar — toggleable from Settings. Artwork is matched through public cover sources (iTunes/Deezer) since Discord cannot read local cover files.
 * **Artist Hero Transitions**: Custom shuttle builders maintain smooth circular geometry during hero transitions between artist cards and headers.
 
 ---
@@ -54,6 +55,7 @@ A high-performance, aesthetically crafted local music player built with Flutter.
 * **[on_audio_query](https://pub.dev/packages/on_audio_query)** — Local device audio library scanner
 * **[image_picker](https://pub.dev/packages/image_picker)** — Custom playlist artwork image picker
 * **[shared_preferences](https://pub.dev/packages/shared_preferences)** — Local persistence for playlists, favorites, play counts, and preferences
+* **[dart_discord_presence](https://pub.dev/packages/dart_discord_presence)** — Discord Rich Presence over the local IPC socket (Linux desktop)
 * **[http](https://pub.dev/packages/http)** — Synchronized lyrics fetching via open APIs
 
 ---

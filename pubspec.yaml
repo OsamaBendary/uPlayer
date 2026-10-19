@@ -61,6 +61,7 @@ dependencies:
   file_selector: ^1.1.0
   image_picker_linux: ^0.2.2
   media_kit_libs_linux: ^1.2.1
+  dart_discord_presence: ^1.2.1
 
 
 

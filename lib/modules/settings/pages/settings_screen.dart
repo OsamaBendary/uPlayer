@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:u_player/core/utils/app_snackbar.dart';
+import 'package:u_player/core/services/discord/discord_config.dart';
+import 'package:u_player/core/services/discord/discord_rich_presence_service.dart';
 import 'package:u_player/core/services/player/playback_controller.dart';
 import 'package:u_player/core/services/update/github_update_service.dart';
 import 'package:u_player/modules/library/widgets/app_gradient_background.dart';
@@ -9,6 +11,7 @@ import 'package:u_player/modules/settings/pages/download_folder_picker_screen.da
 import 'package:u_player/modules/settings/pages/extension_management_screen.dart';
 import 'package:u_player/modules/settings/pages/folder_picker_screen.dart';
 import 'package:u_player/core/services/folder_filter/folder_filter_service.dart';
+import 'package:u_player/platform/platform_env.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -116,6 +119,51 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Widget _buildSwitchRow({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.2),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: Colors.white70, size: 28),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: const TextStyle(color: Colors.white54, fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+          Switch(
+            value: value,
+            onChanged: onChanged,
+            activeThumbColor: Colors.white,
+            activeTrackColor: const Color(0xFF5865F2),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return AppGradientBackground(
@@ -176,6 +224,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   );
                 },
               ),
+              if (isLinuxDesktop && kDiscordApplicationId.isNotEmpty)
+                ValueListenableBuilder<bool>(
+                  valueListenable: DiscordRichPresenceService.instance.enabledNotifier,
+                  builder: (context, discordEnabled, _) {
+                    return _buildSwitchRow(
+                      icon: Icons.forum_outlined,
+                      title: 'Discord Rich Presence',
+                      subtitle: discordEnabled
+                          ? 'Show what you are listening to on Discord'
+                          : 'Hidden from your Discord profile',
+                      value: discordEnabled,
+                      onChanged: (value) => DiscordRichPresenceService.instance.setEnabled(value),
+                    );
+                  },
+                ),
               _buildSettingRow(
                 icon: Icons.system_update_outlined,
                 title: 'Check for Updates',

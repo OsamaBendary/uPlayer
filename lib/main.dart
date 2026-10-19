@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:u_player/core/navigation/app_keys.dart';
 export 'package:u_player/core/navigation/app_keys.dart';
+import 'package:u_player/core/services/discord/discord_rich_presence_service.dart';
 import 'package:u_player/core/services/extension/extension_service.dart';
 import 'package:u_player/core/services/go/go_backend_bridge.dart';
 import 'package:u_player/core/services/player/playback_controller.dart';
@@ -105,6 +106,10 @@ void main(List<String> args) async {
   // Desktop mini player: connects the shell to the window the GTK runner owns
   // and reopens it if the user left it on last time.
   unawaited(MiniPlayerWindowService.instance.init());
+
+  // Discord Rich Presence (Linux desktop): publishes what's playing to the
+  // local Discord client. No-op on Android and when disabled in Settings.
+  unawaited(DiscordRichPresenceService.instance.start());
 
   runApp(MaterialApp(
     debugShowCheckedModeBanner: false,
