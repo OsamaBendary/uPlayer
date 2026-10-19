@@ -1,3 +1,18 @@
+# Release Notes — uPlayer v2.2.0
+
+## What's New
+
+### Discord Rich Presence
+* **Show what you're listening to on Discord**: uPlayer now publishes a native Discord activity with the song title, artist and album, album cover, and a live progress bar. No setup is needed beyond having the Discord desktop client running.
+* **Paused and idle states**: pausing keeps the current track visible with a `Paused` label and removes the timer. With nothing playing, Discord shows `Browsing library` instead of a stale track.
+* **Artwork Discord can display**: covers are matched against public iTunes and Deezer artwork and cached per album, because Discord cannot read local cover files.
+* **Self-healing connection**: if Discord starts after uPlayer, restarts, or briefly disconnects, presence reconnects automatically within about 20 seconds.
+* **Toggle in Settings**: “Discord Rich Presence” is on by default and can be turned off at any time.
+
+Discord Rich Presence is Linux desktop only — Discord's IPC transport is not available on Android. Library, playback, mini player, and lyrics are unchanged from the v2.1.1 Linux release.
+
+---
+
 # Release Notes — u_player v2.1.1
 
 ## What's New
